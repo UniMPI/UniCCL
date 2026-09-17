@@ -1,0 +1,8 @@
+# Build directories
+/build*/
+/cmake-build-*/
+
+# Editor / OS noise
+*.swp
+*.swo
+.DS_Store
