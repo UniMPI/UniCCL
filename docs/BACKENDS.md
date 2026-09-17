@@ -32,25 +32,53 @@ smarter default is a documented future refinement.
 is tried (e.g. `libnccl.so` → `libnccl.so.2`). Unlike UniMPI there is no MPI
 "standard ABI" library to reject — XCCL has no such class of ambiguity.
 
-## Identification — RCCL exports BOTH symbol families
+## Identification — the `rccl*` premise is obsolete (vendor records)
 
-NCCL exports `nccl*`. RCCL exports **`rccl*` (native) plus `nccl*`
-(ABI-compatibility layer)**. A naive identifier that only checks for
-`ncclGetVersion` would therefore misidentify a librccl as NCCL and then bind
-the wrapper to the compat layer instead of the native API.
+Earlier drafts of this document assumed **"real RCCL exports a `rccl*` native
+family plus an `nccl*` ABI-compatibility layer"** and built the identifier on
+checking `rcclGetVersion` first. The official records in `docs/official/`
+(`amdc-rccl-official.md`, `amdc-rccl-source-evidence.md`) show that is wrong
+for modern AMD RCCL:
 
-XCCL's rule (`xcc_loader_identify_backend`):
+- The RCCL 2.30.4 public API reference lists **only `nccl*`** functions,
+  types and macros (header `nccl.h`); `ncclGetVersion` is documented as
+  returning "the RCCL_VERSION_CODE of RCCL".
+- GitHub code search finds **no public `rccl*` symbols** in the RCCL source
+  (`rcclGetVersion`, `rcclCommInitRank`, `rcclBroadcast`, … all 0 hits);
+  `rccl*` survives only as *internal* names (`rccl_wrap.cc`,
+  `rcclAllReduceShouldTakeDdaPath`, `RcclTunableColls`).
 
-1. `rcclGetVersion` present → **RCCL** (checked first);
-2. else `ncclGetVersion` present → **NCCL**;
-3. else unknown.
+So on the current ecosystem the symbol reality is one shared family:
 
-The fixture `tests/fake_backends/fake_rccl_identity.c` deliberately ships both
-families (like real RCCL) and `tests/test_loader.c` / `tests/test_api.c` assert
-the result is always RCCL and that the `rccl*` symbols are the ones bound
-(`xcc_backend_version` reflects `rcclGetVersion`, and a distinctive `+1000.0f`
-marker in `rcclAllReduce` proves the native path was used, not the `nccl*`
-compat). This is the intended cross-check case from the design spec.
+| Library | `nccl*`-named public API | `rccl*`-named public API |
+|---|---|---|
+| NVIDIA NCCL | yes (native) | no |
+| AMD RCCL | **yes (native — it *is* the official API)** | no (internal names only) |
+| Hygon DCU DTK `librccl.so` | yes (only family) | no |
+
+Consequences for XCCL, aligned with the design stance "load each backend's own
+native symbols":
+
+- The `rcclGetVersion`-first rule (still in `src/xcc_loader.c` for now) has
+  **no real target**: on current RCCL, NCCL *and* DCU the `nccl*`-family check
+  wins. The `rccl` binding (`src/backends/rccl.c`) was written for a symbol
+  shape that modern AMD RCCL does not export.
+- **Vendor identity is a separate question from the symbol family.** Telling
+  NVIDIA NCCL from AMD RCCL from Hygon DCU needs a probe other than the
+  symbol prefix: e.g. a dependency fingerprint (`libcudart` vs
+  `libamdhip64`/`libhsa-runtime64` vs `libgalaxyhip`) or a vendor-specific
+  symbol. That probe is a documented future refinement (`xcc_backend_name`
+  stays generic until it lands).
+- The fixture `fake_rccl_identity.c` ships both `rccl*` and `nccl*` families
+  and its tests prove that *if* a library ever exports `rccl*`, XCCL binds the
+  `rccl*` family. That remains a valid defensive path — but it no longer
+  claims to model current AMD RCCL; it models a historical/third-party
+  `rccl*`-exporting shape.
+
+*Status note:* the code keeps the `rccl*` path for backward compatibility
+until a real AMD host runs `nm -D librccl.so` and settles the per-binary
+question (see `SUPPORT_MATRIX.md`). The identifier logic itself is unchanged
+in M2; what changed is the documented model of what "RCCL" exports.
 
 ## Binding: dlsym per symbol, NULL on missing
 
@@ -93,12 +121,14 @@ slot and `xcc_*_available() == 0` when absent.
 | `group_start` | optional | `ncclGroupStart` | `rcclGroupStart` |
 | `group_end` | optional | `ncclGroupEnd` | `rcclGroupEnd` |
 
-The RCCL column is significant: real RCCL exports these `rccl*` symbols AND a
-`nccl*` ABI-compatibility layer. Only the `rccl*` family is bound by
-`src/backends/rccl.c` (the loader reaches it only after `rcclGetVersion`
-identified an RCCL library). Coverage against live NCCL/RCCL binaries is
-tracked in SUPPORT_MATRIX.md; until it is executed on a GPU image the rows
-above are the documented expectation, not a loaded-library measurement.
+The RCCL column is a *defensive* row, not a description of modern AMD RCCL:
+real RCCL's public API is `nccl*`-named (see the "Identification" section and
+`docs/official/`), so on a current RCCL the `nccl` column is the one actually
+bound. The `rccl*` column stays as the family XCCL would bind *if* a loaded
+library exports it (historical / third-party shape), reached only after a
+`rcclGetVersion`-style probe. Coverage against live NCCL/RCCL binaries is
+tracked in SUPPORT_MATRIX.md; until executed on a real AMD host the `rccl*`
+rows above are the documented fallback, not a loaded-library measurement.
 
 ## Enum mapping
 
@@ -143,6 +173,10 @@ non-zero → `XCC_ERR_UNHANDLED_BACKEND`, keeping the raw value for
   document-level checks. No compile-time gate machinery (NCCL's API surface is
   small; UniMPI's MPI-version gating was judged unnecessary here).
 - **Default backend is a fixed name**, not a CUDA/ROCm scan.
+- **Vendor identity probe pending**: distinguishing NVIDIA NCCL from AMD RCCL
+  from Hygon DCU (all `nccl*`-named today) needs a dependency/vendor probe,
+  not the symbol prefix — recorded as future work; until then
+  `xcc_backend_name()` reports whatever the loader resolved (`nccl`).
 - **Error-string passthrough** (`ncclGetErrorString`) is pending; the raw
   backend result is surfaced today.
 

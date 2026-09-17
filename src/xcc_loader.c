@@ -147,9 +147,11 @@ xcc_backend_type_t xcc_loader_identify_backend(xcc_lib_handle_t handle) {
 
     fprintf(stderr, "[xccl] Identifying backend type...\n");
 
-    /* RCCL exports BOTH rccl* (native) and nccl* (ABI-compatible) symbols, so
-     * an rccl*-exclusive symbol MUST be tested first. A librccl that also
-     * carries ncclGetVersion must never be misidentified as NVIDIA NCCL. */
+    /* Defensive dual-family rule: if a library exports rccl*, a librccl that
+     * also carries ncclGetVersion must never be misidentified as NVIDIA NCCL,
+     * so the rccl* probe stays first. NOTE (docs/official/): modern AMD RCCL
+     * exposes no public rccl* symbols, so on real RCCL/DCU this branch does
+     * not fire and the library resolves via ncclGetVersion below as NCCL. */
     if (xcc_platform_dlsym(handle, "rcclGetVersion") != NULL) {
         fprintf(stderr, "[xccl] Detected RCCL backend\n");
         return XCC_BACKEND_RCCL;

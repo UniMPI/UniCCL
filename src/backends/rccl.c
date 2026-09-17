@@ -1,10 +1,12 @@
-/* xcc_backends/rccl.c - AMD RCCL binding.
+/* xcc_backends/rccl.c - AMD RCCL binding (defensive rccl* family).
  *
- * Binds the rccl* (native) symbol family. Real RCCL also ships an nccl* ABI
- * compatibility layer, but the loader only reaches this file after identify
- * has confirmed rccl* symbols, so we bind rccl* throughout rather than the
- * compat layer. Like nccl.c, a missing symbol leaves the slot NULL and the
- * *_available() gate reports it. */
+ * Binds the rccl* symbol family. NOTE (docs/official/): modern AMD RCCL's
+ * public API is nccl*-named and exposes no public rccl* symbols, so on a real
+ * RCCL the loader resolves it via the nccl binding (nccl.c), and this file is
+ * a defensive path reached only if a library actually exports rccl*
+ * (historical / third-party shape). When reached, we bind rccl* throughout
+ * rather than mixing with the nccl* family. Like nccl.c, a missing symbol
+ * leaves the slot NULL and the *_available() gate reports it. */
 #include "xcc_vtable.h"
 #include "xcc_platform.h"
 #include "xcc_errors.h"

@@ -67,10 +67,13 @@ is bound and fake-tested but the real-backend integration run did not call it.
 | `group_start` | Passed (fake) | Not exercised (real) | Not exercised (real) | N/A on Hygon host |
 | `group_end` | Passed (fake) | Not exercised (real) | Not exercised (real); degrade case fake-tested | N/A on Hygon host |
 
-> The `rccl (native)` column means an AMD RCCL library exporting `rccl*`
-> symbols. DCU here means **Hygon's DTK `librccl.so`**, which is a pure
-> `nccl*`-compatibility layer (see the record below); that host has no `rccl*`
-> symbols at all, so the native-RCCL row stays unevaluated there.
+> The `rccl (native)` column tracks an AMD RCCL library exporting `rccl*`
+> symbols. Per the official record (`docs/official/`) current RCCL exposes no
+> public `rccl*` symbols, so this column is a defensive/historical row, not a
+> claim about modern AMD RCCL. DCU here means **Hygon's DTK `librccl.so`**,
+> which is a pure `nccl*`-compatibility layer (see the record below); that
+> host has no `rccl*` symbols at all, so the native-RCCL row stays
+> unevaluated there.
 
 ## NCCL real-backend verification record
 
@@ -124,30 +127,46 @@ is bound and fake-tested but the real-backend integration run did not call it.
 
 ## RCCL (native AMD) status
 
-No AMD RCCL host assigned yet. The `rccl*`-native path (`src/backends/rccl.c`)
-is verified only against the dual-symbol `fake_rccl_identity.so` fixture, which
-locks in the RCCL-first identification and native `rccl*` binding. On the Hygon
-DCU host there are no `rccl*` symbols, so AMD-RCCL-native verification remains
-pending.
+No AMD RCCL host is assigned. More importantly, the official record
+(`docs/official/amdc-rccl-official.md` / `amdc-rccl-source-evidence.md`)
+shows the assumed shape was wrong: **AMD RCCL 2.30.4's public API is
+`nccl*`-named** (documented functions/types/macros, header `nccl.h`), and the
+RCCL source exposes no public `rccl*` symbols (`rccl*` survives only as
+internal implementation names). So on current RCCL the `nccl` binding — not
+`src/backends/rccl.c` — is the *native* path:
+
+| Question | Current status |
+|---|---|
+| Recognize a real RCCL AS RCCL (not as NCCL) | Not possible via symbol prefix today; needs a vendor probe (dependency fingerprint) — recorded as future work in BACKENDS.md |
+| `rccl*`-native binding (`src/backends/rccl.c`, identification + `rcclGetVersion` probe) | Verified only against `fake_rccl_identity.so` (which ships both families); re-framed as a defensive/historical path, not a model of current AMD RCCL |
+| Definitively settle whether any shipped `librccl.so` exports `rccl*` | Pending: `nm -D librccl.so` on a real AMD host; the source-level answer today is "no public `rccl*`" |
 
 ## Identification (the RCCL cross-check)
 
 | Fixture / library shape | Expected identification | Test | Status |
 |---|---|---|---|
 | `libnccl.so` with only `nccl*` symbols | NCCL | test_loader / test_api | Passed (fake); **Passed (real) on iota** |
-| `librccl.so` with **both** `rccl*` + `nccl*` (real RCCL shape) | **RCCL** | test_loader / test_api | Passed (fake); real RCCL pending |
+| `librccl.so` with **both** `rccl*` + `nccl*` (historical / third-party shape) | **RCCL** | test_loader / test_api | Passed (fake); defensive only |
+| current AMD RCCL shape (official API is `nccl*` only) | NCCL* | — (no AMD host) | **pending real `nm -D librccl.so`**; *see note* |
 | backend missing an optional symbol (`ncclGroupEnd` absent) | NCCL, `group_end` slot NULL | test_vtable / test_api | Passed (fake) |
 
-The dual-symbol case is the one the design spec calls out: `rcclGetVersion`
-must be probed before `ncclGetVersion` or any RCCL library (which ships an
-`nccl*` compat layer) would be misidentified as NCCL. The fake proves the
-wrapper binds the `rccl*` native family (distinct version + `+1000.0f`
-allreduce marker).
+The dual-symbol row is retained as a defensive check: *if* a library exports
+`rccl*`, `rcclGetVersion` probing must win so the wrapper binds the `rccl*`
+family (the fake proves this via a distinct version + `+1000.0f` allreduce
+marker). But note the third row: the official RCCL record says current AMD
+RCCL exposes **no** public `rccl*` symbols, so on a real RCCL today the
+identifier resolves via `ncclGetVersion` → NCCL, exactly as it does on Hygon
+DCU. The `*` flags that identification as provisional: vendor identity should
+come from a dedicated probe (dependency fingerprint), not from the symbol
+prefix — future work per BACKENDS.md.
 
 ## What is not verified yet
 
-- **Native AMD RCCL** (`rccl*` symbols): no AMD host assigned; fake-only so
-  far. On the Hygon DCU host there is no `rccl*` to verify against.
+- **Native AMD RCCL**: no AMD host assigned. Official records say RCCL's
+  public API is `nccl*`-named and there are no public `rccl*` symbols, so the
+  `rccl*`-native path remains fake-only (defensive) and the vendor-identity
+  probe is unimplemented. A real AMD host (`nm -D librccl.so`) settles the
+  remaining per-binary question.
 - **Real broadcast / group / comm_user_rank** against a live library: the iota
   (NCCL) and dcu (Hygon `nccl*`-compat) runs exercised the allreduce path;
   these slots are fake-tested only.

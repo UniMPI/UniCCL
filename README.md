@@ -1,12 +1,21 @@
-# XCCL — unified collective-communication layer (NCCL / RCCL)
+# XCCL — a unified entry point for any collective-communication library
 
-XCCL wraps NVIDIA **NCCL** and AMD **RCCL** (and, in time, domestic-GPU
-collective libraries) behind a single semantic `xcc_*` API. A backend is
+XCCL's point is **not** to make everything "be NCCL". It is to expose one
+semantic `xcc_*` API over *any* collective-communication library — NVIDIA
+**NCCL**, AMD **RCCL**, and in time domestic-GPU collective libraries — while
+each backend **loads and binds its own native symbol family**. A backend is
 chosen at run time via the environment; the wrapper loads it with `dlopen`,
 binds its symbols through a vtable, and degrades gracefully when a symbol is
 missing. Upper layers (notably UMC, the Unified Memory & Communication
 middleware) depend only on `include/xcc.h` and never touch `nccl.h` /
 `rccl.h` / CUDA / ROCm.
+
+One fact worth stating up front (evidence in `docs/official/`): NVIDIA NCCL,
+AMD RCCL *and* Hygon's DCU collective library all expose the **`nccl*`-named**
+public API — for RCCL this *is* the genuine native API, not a compatibility
+shim. So "load each backend's native symbols" resolves to the `nccl` binding
+for all three today; the *vendor identity* of a loaded library is a separate
+question, answered by its own probe, not by the symbol prefix.
 
 This is the **M2 skeleton**: platform abstraction, runtime backend loading,
 the minimal `xcc_*` collective face, `nccl` / `rccl` bindings and a fake-backend
@@ -88,7 +97,8 @@ include/     public contract: xcc.h, xcc_vtable.h, xcc_backends.h,
 src/         loader, vtable, api, platform, backends/{nccl,rccl}.c
 tests/       fake fixtures + unit tests + integration test + runner
 examples/    minimal.c
-docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md
+docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
+             doc/source records backing the backend facts)
 ```
 
 ## Status
