@@ -80,16 +80,35 @@ int main(void) {
         fclose(f);
     }
 
+    xcc_devmem_t dm;
+    if (xcc_devmem_load(&dm) != 0) {
+        fprintf(stderr, "no CUDA/HIP runtime available\n");
+        return 2;
+    }
+
+    /* Bind each rank to its own device BEFORE communicator bootstrap: NCCL
+     * refuses two ranks of one communicator on the same GPU, and without an
+     * explicit cudaSetDevice every process defaults to device 0. The launcher
+     * must expose at least `world` GPUs. */
+    int gpu_count = 0;
+    if (dm.dev_get_device_count(&gpu_count) != 0 || gpu_count < 1) {
+        fprintf(stderr, "device count query failed\n");
+        return 2;
+    }
+    if (world > gpu_count) {
+        fprintf(stderr, "world=%d exceeds visible GPUs=%d (bind one rank per GPU)\n",
+                world, gpu_count);
+        return 2;
+    }
+    if (dm.dev_set_device(rank) != 0) {
+        fprintf(stderr, "cudaSetDevice(%d) failed\n", rank);
+        return 2;
+    }
+
     xcc_comm_t comm = NULL;
     rc = xcc_comm_init_rank(&comm, world, uid, rank);
     if (rc != XCC_OK) {
         fprintf(stderr, "xcc_comm_init_rank failed: %s\n", xcc_error_string(rc));
-        return 2;
-    }
-
-    xcc_devmem_t dm;
-    if (xcc_devmem_load(&dm) != 0) {
-        fprintf(stderr, "no CUDA/HIP runtime available\n");
         return 2;
     }
 

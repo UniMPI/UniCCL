@@ -7,6 +7,8 @@ typedef int (*malloc_fn)(void **, size_t);
 typedef int (*memcpy_fn)(void *, const void *, size_t, int);
 typedef int (*memset_fn)(void *, int, size_t);
 typedef int (*free_fn)(void *);
+typedef int (*set_device_fn)(int);
+typedef int (*device_count_fn)(int *);
 
 static int load_runtime(const char *const *libs, const char *prefix,
                         xcc_devmem_t *api) {
@@ -29,9 +31,14 @@ static int load_runtime(const char *const *libs, const char *prefix,
     api->dev_memset  = (memset_fn)dlsym(h, sym);
     snprintf(sym, sizeof(sym), "%sFree", prefix);
     api->dev_free    = (free_fn)dlsym(h, sym);
+    snprintf(sym, sizeof(sym), "%sSetDevice", prefix);
+    api->dev_set_device = (set_device_fn)dlsym(h, sym);
+    snprintf(sym, sizeof(sym), "%sGetDeviceCount", prefix);
+    api->dev_get_device_count = (device_count_fn)dlsym(h, sym);
     api->runtime = prefix;
 
-    if (!api->dev_malloc || !api->dev_memcpy || !api->dev_memset || !api->dev_free) {
+    if (!api->dev_malloc || !api->dev_memcpy || !api->dev_memset || !api->dev_free ||
+        !api->dev_set_device || !api->dev_get_device_count) {
         fprintf(stderr, "[devmem] %s runtime missing required symbols\n", prefix);
         return -1;
     }

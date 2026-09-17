@@ -95,8 +95,11 @@ docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md
 
 - Verified on this host: loader / vtable / fake-backend unit tests (all
   green), `minimal` against both fake fixtures.
-- Not yet verified: real NCCL / RCCL (needs a GPU image/host; see
-  `tests/run_integration.sh` and `docs/SUPPORT_MATRIX.md`).
+- Verified on real hardware: NCCL 2.28.7 world=2 allreduce PASSED on `iota`
+  (2× RTX PRO 6000 Blackwell, via HPC SDK bundled NCCL) — see
+  `docs/SUPPORT_MATRIX.md` for the full record.
+- Not yet verified: real RCCL / DCU collective library (pending the DCU host
+  `centos-8-dcu` and its collective-library form).
 
 ## Milestone map (from the D2 unified-communication-stack decision)
 

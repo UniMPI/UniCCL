@@ -23,6 +23,8 @@ typedef struct {
     int  (*dev_memcpy)(void *dst, const void *src, size_t bytes, int kind);
     int  (*dev_memset)(void *ptr, int value, size_t bytes);
     int  (*dev_free)(void *ptr);
+    int  (*dev_set_device)(int device);       /* cudaSetDevice / hipSetDevice */
+    int  (*dev_get_device_count)(int *count); /* cudaGetDeviceCount / hipGetDeviceCount */
     const char *runtime; /* "cuda", "hip", or NULL */
 } xcc_devmem_t;
 
