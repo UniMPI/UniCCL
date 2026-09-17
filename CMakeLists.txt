@@ -34,6 +34,10 @@ target_include_directories(xcc PUBLIC
 # C99 keeps the fake backends / tests simple and portable.
 target_compile_features(xcc PUBLIC c_std_99)
 
+# dl* lives in libdl on glibc < 2.34 (e.g. CentOS 8) and in libc on newer
+# glibc; CMAKE_DL_LIBS carries the right link library on each.
+target_link_libraries(xcc PUBLIC ${CMAKE_DL_LIBS})
+
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(xcc PRIVATE -Wall -Wextra)
 endif()

@@ -95,11 +95,15 @@ docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md
 
 - Verified on this host: loader / vtable / fake-backend unit tests (all
   green), `minimal` against both fake fixtures.
-- Verified on real hardware: NCCL 2.28.7 world=2 allreduce PASSED on `iota`
-  (2× RTX PRO 6000 Blackwell, via HPC SDK bundled NCCL) — see
-  `docs/SUPPORT_MATRIX.md` for the full record.
-- Not yet verified: real RCCL / DCU collective library (pending the DCU host
-  `centos-8-dcu` and its collective-library form).
+- Verified on real hardware:
+  - NCCL 2.28.7 world=2 allreduce PASSED on `iota` (2× RTX PRO 6000 Blackwell,
+    via HPC SDK bundled NCCL);
+  - Hygon DCU world=2 allreduce PASSED on `centos-8-dcu` (3× DCU, DTK 23.10.1
+    `librccl.so` — a pure `nccl*`-compat layer, driven as "nccl" with no
+    interface change; both DTK 23.10.1 and 25.04 export no `rccl*`/`hccl*`).
+  Full records in `docs/SUPPORT_MATRIX.md`.
+- Not yet verified: native AMD RCCL (`rccl*` symbols) — no AMD host assigned;
+  Hygon DCU has no `rccl*` to verify against.
 
 ## Milestone map (from the D2 unified-communication-stack decision)
 

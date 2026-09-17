@@ -54,18 +54,23 @@ symbol manifest"). What follows is the *test* column of the three-way split —
 fake vs live-library execution per slot. "Not exercised (real)" means the slot
 is bound and fake-tested but the real-backend integration run did not call it.
 
-| Slot | fake test | nccl (real) | rccl (real) |
-|---|---|---|---|
-| `get_version` | Passed (fake) | Passed — iota, 2026-09-17 | Not verified |
-| `comm_init_rank` | Passed (fake) | Passed — iota, 2026-09-17 | Not verified |
-| `get_unique_id` | Passed (fake) | Passed — iota, 2026-09-17 | Not verified |
-| `allreduce` | Passed (fake) | Passed — iota, 2026-09-17 (sum=3, world=2) | Not verified |
-| `comm_count` | Passed (fake) | Passed — iota, 2026-09-17 (world check) | Not verified |
-| `comm_destroy` | Passed (fake) | Passed — iota, 2026-09-17 | Not verified |
-| `broadcast` | Passed (fake) | Not exercised (real) | Not verified |
-| `comm_user_rank` | Passed (fake) | Not exercised (real) | Not verified |
-| `group_start` | Passed (fake) | Not exercised (real) | Not verified |
-| `group_end` | Passed (fake) | Not exercised (real); degrade case fake-tested | Not verified |
+| Slot | fake test | nccl (real) | dcu (real, nccl\*-compat) | rccl (native) |
+|---|---|---|---|---|
+| `get_version` | Passed (fake) | Passed — iota, 2026-09-17 | Passed — dcu, 2026-09-17 | N/A on Hygon host (no rccl\*) |
+| `comm_init_rank` | Passed (fake) | Passed — iota, 2026-09-17 | Passed — dcu, 2026-09-17 | N/A on Hygon host |
+| `get_unique_id` | Passed (fake) | Passed — iota, 2026-09-17 | Passed — dcu, 2026-09-17 | N/A on Hygon host |
+| `allreduce` | Passed (fake) | Passed — iota, 2026-09-17 (sum=3, world=2) | Passed — dcu, 2026-09-17 (sum=3, world=2) | N/A on Hygon host |
+| `comm_count` | Passed (fake) | Passed — iota, 2026-09-17 (world check) | Passed — dcu, 2026-09-17 (world check) | N/A on Hygon host |
+| `comm_destroy` | Passed (fake) | Passed — iota, 2026-09-17 | Passed — dcu, 2026-09-17 | N/A on Hygon host |
+| `broadcast` | Passed (fake) | Not exercised (real) | Not exercised (real) | N/A on Hygon host |
+| `comm_user_rank` | Passed (fake) | Not exercised (real) | Not exercised (real) | N/A on Hygon host |
+| `group_start` | Passed (fake) | Not exercised (real) | Not exercised (real) | N/A on Hygon host |
+| `group_end` | Passed (fake) | Not exercised (real) | Not exercised (real); degrade case fake-tested | N/A on Hygon host |
+
+> The `rccl (native)` column means an AMD RCCL library exporting `rccl*`
+> symbols. DCU here means **Hygon's DTK `librccl.so`**, which is a pure
+> `nccl*`-compatibility layer (see the record below); that host has no `rccl*`
+> symbols at all, so the native-RCCL row stays unevaluated there.
 
 ## NCCL real-backend verification record
 
@@ -90,15 +95,40 @@ is bound and fake-tested but the real-backend integration run did not call it.
   a single GPU and no NCCL, so the user directed this verification to `iota`
   (dual-GPU) instead.
 
-## RCCL / DCU status
+## DCU real-backend verification record
 
-Not verified. Target machine `centos-8-dcu` (Hygon DCU) is shared with the dtk
-special; the **collective-communication library form on that host
-(`librccl.so` vs a DCU-native library) is pending confirmation** — that
-determines whether `src/backends/rccl.c` covers it directly or a new backend is
-needed. The fixture `fake_rccl_identity.so` (dual `rccl*`+`nccl*`) already
-locks in the RCCL-first identification and native `rccl*` binding on the fake
-side.
+- **Date / machine**: 2026-09-17, `centos-8-dcu` (DCUSERVER, x86_64, CentOS 8).
+- **Hardware**: 3× Hygon DCU (`/dev/dri` card0–card2), shared with the dtk
+  special (two ranks were used, one GPU left idle).
+- **Software**: Hygon DTK **23.10.1** (the current `/opt/dtk` target).
+- **Collective library**: `librccl.so.1.0` → **`ncclGetVersion` reported
+  21304**; both DTK 23.10.1 and 25.04 export **only the `nccl*` symbol family
+  (GetVersion/CommInitRank/CommInitAll/AllReduce/Broadcast/CommCount/
+  CommUserRank/CommDestroy/GetUniqueId/GroupStart/GroupEnd, …)** — no `rccl*`
+  exclusives and no `hccl*` symbols. In other words Hygon's `librccl.so` is a
+  **pure `nccl*`-compatibility layer**, the reverse of AMD RCCL (which exports
+  both families). It depends on `libgalaxyhip.so` (Hygon HIP runtime),
+  `librocm_smi64.so.2`, `libhsa-runtime64.so.1` (all under
+  `/opt/dtk-23.10.1/lib`).
+- **Result**: `world=2`, one rank per DCU, device memory via the zero-header
+  adapter (HIP path). Both ranks `PASS (backend=nccl version=21304 sum=3)`.
+  XCCL identified the library as **NCCL** (`ncclGetVersion` present, no
+  `rccl*`) and bound the `nccl*` compat symbols — which is exactly what the
+  design anticipated for a library that only exports the `nccl*` family. **No
+  interface change was needed.**
+- **Design implication**: if the plan wants a distinct "Hygon DCU" identity
+  (better `xcc_backend_name()` and a future Hygon-native backend), the
+  identifer needs an additional Hygon-specific probe. Today it deliberately
+  looks like NCCL because the library's only surface is the `nccl*` compat
+  layer.
+
+## RCCL (native AMD) status
+
+No AMD RCCL host assigned yet. The `rccl*`-native path (`src/backends/rccl.c`)
+is verified only against the dual-symbol `fake_rccl_identity.so` fixture, which
+locks in the RCCL-first identification and native `rccl*` binding. On the Hygon
+DCU host there are no `rccl*` symbols, so AMD-RCCL-native verification remains
+pending.
 
 ## Identification (the RCCL cross-check)
 
@@ -116,10 +146,11 @@ allreduce marker).
 
 ## What is not verified yet
 
-- **Real RCCL / DCU** (any operation). Pending confirmation of the DCU
-  collective-library form on `centos-8-dcu` and a slot on that shared host.
-- **Real broadcast / group / comm_user_rank / comm_count** against real NCCL:
-  the iota run exercised the allreduce path; these slots are fake-tested only.
+- **Native AMD RCCL** (`rccl*` symbols): no AMD host assigned; fake-only so
+  far. On the Hygon DCU host there is no `rccl*` to verify against.
+- **Real broadcast / group / comm_user_rank** against a live library: the iota
+  (NCCL) and dcu (Hygon `nccl*`-compat) runs exercised the allreduce path;
+  these slots are fake-tested only.
 - Version gating beyond the `*GetVersion` value (runtime-only in M2).
 - `xcc_get_last_error` string passthrough (raw backend code only).
 

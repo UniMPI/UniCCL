@@ -49,7 +49,7 @@ int xcc_devmem_load(xcc_devmem_t *api) {
     const char *cuda_libs[] = {"libcudart.so", "libcudart.so.13",
                                "libcudart.so.12", NULL};
     const char *hip_libs[] = {"libamdhip64.so", "libamdhip64.so.6",
-                              "libamdhip64.so.5", NULL};
+                              "libamdhip64.so.5", "libamdhip64.so.4", NULL};
     if (load_runtime(cuda_libs, "cuda", api) == 0) {
         return 0;
     }
