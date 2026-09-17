@@ -72,6 +72,34 @@ Everything else is **optional** (missing ⇒ `NULL` slot ⇒ graceful degrade):
 - `*GetUniqueId`, `*CommDestroy`, `*CommCount`, `*CommUserRank`,
   `*GroupStart`, `*GroupEnd`
 
+## Backend symbol manifest (M2)
+
+The three-way separation discipline (docs/SUPPORT_MATRIX.md) distinguishes a
+vtable slot from the symbol a backend actually exports. This manifest lists,
+for every M2 slot, the exact symbol each backend family is expected to export.
+"Core" slots are required for `xcc_init`; "optional" slots degrade to a NULL
+slot and `xcc_*_available() == 0` when absent.
+
+| vtable slot | role | nccl symbol (NCCL) | rccl symbol (RCCL) |
+|---|---|---|---|
+| `get_version` | core | `ncclGetVersion` | `rcclGetVersion` |
+| `comm_init_rank` | core | `ncclCommInitRank` | `rcclCommInitRank` |
+| `allreduce` | core | `ncclAllReduce` | `rcclAllReduce` |
+| `broadcast` | core | `ncclBroadcast` | `rcclBroadcast` |
+| `get_unique_id` | optional | `ncclGetUniqueId` | `rcclGetUniqueId` |
+| `comm_destroy` | optional | `ncclCommDestroy` | `rcclCommDestroy` |
+| `comm_count` | optional | `ncclCommCount` | `rcclCommCount` |
+| `comm_user_rank` | optional | `ncclCommUserRank` | `rcclCommUserRank` |
+| `group_start` | optional | `ncclGroupStart` | `rcclGroupStart` |
+| `group_end` | optional | `ncclGroupEnd` | `rcclGroupEnd` |
+
+The RCCL column is significant: real RCCL exports these `rccl*` symbols AND a
+`nccl*` ABI-compatibility layer. Only the `rccl*` family is bound by
+`src/backends/rccl.c` (the loader reaches it only after `rcclGetVersion`
+identified an RCCL library). Coverage against live NCCL/RCCL binaries is
+tracked in SUPPORT_MATRIX.md; until it is executed on a GPU image the rows
+above are the documented expectation, not a loaded-library measurement.
+
 ## Enum mapping
 
 NCCL and RCCL use identical numeric values for datatypes and ops, so XCCL maps
