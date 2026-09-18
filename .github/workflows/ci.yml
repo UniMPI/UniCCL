@@ -1,0 +1,172 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 1/3: multi-config fake-backend unit suite (no GPU, no vendor libs).
+  # ctest runs 3/3 and minimal is driven end to end against every fixture,
+  # asserting that the reported backend name matches the requested one.
+  linux-fake-unit:
+    name: Linux fake unit ${{ matrix.build_type }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [ Debug, Release ]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y ninja-build
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DUNICC_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run unit suite
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Drive minimal against all four fixtures
+        run: |
+          set -euo pipefail
+          for f in nccl rccl oneccl eccl; do
+            out="$(UNICC_BACKEND="$f" \
+              UNICC_LIBRARY="$PWD/build/tests/fake/fake_${f}_identity.so" \
+              ./build/minimal)"
+            printf '%s\n' "$out"
+            grep -qi "backend=$f" <<<"$out" \
+              || { echo "FAIL: minimal did not identify backend '$f'" >&2; exit 1; }
+            grep -q "allreduce" <<<"$out" \
+              || { echo "FAIL: minimal allreduce did not run for backend '$f'" >&2; exit 1; }
+          done
+
+  # 2/3: strict instrumented build. The dlopen'd fake fixtures are ASan-instrumented
+  # too, so the shared linker flags must carry the sanitizers as well (the main
+  # binary alone is not enough for a dlopen'd instrumented .so).
+  linux-strict-sanitizers:
+    name: Linux strict C99 ASan, UBSan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Clang and Ninja
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang ninja-build
+
+      - name: Configure strict instrumented build
+        run: >-
+          cmake -S . -B build-sanitized -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_C_FLAGS=-Werror\ -fsanitize=address,undefined\ -fno-omit-frame-pointer
+          -DCMAKE_EXE_LINKER_FLAGS=-fsanitize=address,undefined
+          -DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=address,undefined
+          -DUNICC_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build-sanitized --parallel
+
+      - name: Run unit suite under sanitizers
+        run: >-
+          ctest --test-dir build-sanitized --output-on-failure --timeout 120 -L unit
+
+  # 3/3: first real backend -- Intel oneCCL v2 is pure-CPU and NCCL-shaped, so it
+  # runs on a public ubuntu runner with no GPU. The oneAPI apt source is the same
+  # one uniMPI's linux-intelmpi job already exercises.
+  real-oneccl:
+    name: Real Intel oneCCL
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Add the official Intel oneAPI repository
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y gpg-agent ninja-build wget
+          wget -qO- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+            | gpg --dearmor \
+            | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg >/dev/null
+          echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" \
+            | sudo tee /etc/apt/sources.list.d/oneAPI.list
+          sudo apt-get update
+
+      - name: Install Intel oneCCL
+        run: sudo apt-get install --no-install-recommends -y intel-oneapi-ccl-devel
+
+      - name: Resolve the oneCCL runtime library
+        id: ccl
+        shell: bash
+        run: |
+          set -euo pipefail
+          source /opt/intel/oneapi/setvars.sh >/dev/null 2>&1 \
+            || source /opt/intel/oneapi/ccl/latest/env/vars.sh
+          library=""
+          for candidate in $(find /opt/intel/oneapi -name 'libccl.so.2' 2>/dev/null); do
+            library="$(readlink -f "$candidate")"
+            break
+          done
+          if [[ -z "$library" ]]; then
+            library="$(find /opt/intel/oneapi -name 'libccl.so*' 2>/dev/null | grep -v legacy | head -1)"
+            test -n "$library" && library="$(readlink -f "$library")"
+          fi
+          test -n "$library"
+          # oneCCL v2 is a plugin shell: the classic C++ ABI lives in the legacy
+          # plugin. Log it so a missing plugin is obvious in the run log, but do
+          # not hard-require it -- the C API binding only needs libccl.so.2.
+          dir="$(dirname "$library")"
+          if compgen -G "$dir/libccl_legacy.so*" >/dev/null; then
+            echo "Legacy plugin: $(readlink -f "$dir"/libccl_legacy.so*)"
+          else
+            echo "NOTE: no libccl_legacy plugin next to $(basename "$library")"
+          fi
+          echo "CCL_LIB=$library" >> "$GITHUB_ENV"
+          echo "Resolved oneCCL library: $library"
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DUNICC_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Drive minimal against the real oneCCL library
+        env:
+          UNICC_BACKEND: oneccl
+          UNICC_LIBRARY: ${{ env.CCL_LIB }}
+        run: |
+          set -euo pipefail
+          out="$(./build/minimal)"
+          printf '%s\n' "$out"
+          grep -qi "backend=oneccl" <<<"$out" \
+            || { echo "FAIL: real oneCCL was not identified as backend 'oneccl'" >&2; exit 1; }
+
+      - name: Run unit suite with the real oneCCL loaded
+        env:
+          UNICC_BACKEND: oneccl
+        run: ctest --test-dir build --output-on-failure
