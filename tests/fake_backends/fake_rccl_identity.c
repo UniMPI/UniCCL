@@ -11,6 +11,7 @@
  */
 #include <stdlib.h>
 #include <string.h>
+#include "unicc_native_id.h"
 
 #ifdef _WIN32
 #define FAKE_EXPORT __declspec(dllexport)
@@ -18,8 +19,9 @@
 #define FAKE_EXPORT __attribute__((visibility("default")))
 #endif
 
-typedef struct { char internal[128]; } rcclUniqueId;
-typedef struct { char internal[128]; } ncclUniqueId;
+/* 128-byte unique ids for both the rccl* and the nccl*-compat faces: the
+ * shared type from unicc_native_id.h, exact match for the rccl/nccl binding
+ * dlsym casts. */
 typedef void* rcclComm_t;
 typedef void* ncclComm_t;
 
@@ -70,13 +72,13 @@ FAKE_EXPORT int rcclGetVersion(int *version) {
     return 0;
 }
 
-FAKE_EXPORT int rcclGetUniqueId(rcclUniqueId *id) {
+FAKE_EXPORT int rcclGetUniqueId(unicc_native_uid_t *id) {
     if (id) memset(id, 0xCD, sizeof(*id));
     return 0;
 }
 
 FAKE_EXPORT int rcclCommInitRank(rcclComm_t *comm, int nranks,
-                                 rcclUniqueId uid, int rank) {
+                                 unicc_native_uid_t uid, int rank) {
     (void)nranks; (void)uid; (void)rank;
     if (comm) *comm = (void*)0x2;
     return 0;
@@ -127,13 +129,13 @@ FAKE_EXPORT int ncclGetVersion(int *version) {
     return 0;
 }
 
-FAKE_EXPORT int ncclGetUniqueId(ncclUniqueId *id) {
+FAKE_EXPORT int ncclGetUniqueId(unicc_native_uid_t *id) {
     if (id) memset(id, 0xEF, sizeof(*id));
     return 0;
 }
 
 FAKE_EXPORT int ncclCommInitRank(ncclComm_t *comm, int nranks,
-                                 ncclUniqueId uid, int rank) {
+                                 unicc_native_uid_t uid, int rank) {
     (void)nranks; (void)uid; (void)rank;
     if (comm) *comm = (void*)0x2;
     return 0;

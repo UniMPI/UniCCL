@@ -8,6 +8,7 @@
  * +3000.0f on float32 so tests can prove the eccl* binding was really bound. */
 #include <stdlib.h>
 #include <string.h>
+#include "unicc_native_id.h"
 
 #ifdef _WIN32
 #define FAKE_EXPORT __declspec(dllexport)
@@ -15,10 +16,10 @@
 #define FAKE_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define FAKE_ECCL_UID_BYTES 128
 #define FAKE_ECCL_VERSION ((3U << 22) | (5U << 12) | 1U)  /* 3.5.1 */
 
-typedef struct { char internal[FAKE_ECCL_UID_BYTES]; } ecclUniqueId;
+/* 128-byte unique id: the shared type from unicc_native_id.h - it must be
+ * the exact same type the eccl binding's dlsym cast uses. */
 typedef void* ecclComm_t;
 
 static size_t fake_dt_size(int dt) {
@@ -62,13 +63,13 @@ FAKE_EXPORT int ecclGetVersion(int *version) {
     return 0;
 }
 
-FAKE_EXPORT int ecclGetUniqueId(ecclUniqueId *id) {
+FAKE_EXPORT int ecclGetUniqueId(unicc_native_uid_t *id) {
     if (id) memset(id, 0x22, sizeof(*id));
     return 0;
 }
 
 FAKE_EXPORT int ecclCommInitRank(ecclComm_t *comm, size_t numranks,
-                                 ecclUniqueId commId, int rank) {
+                                 unicc_native_uid_t commId, int rank) {
     (void)numranks; (void)commId; (void)rank;
     if (comm) *comm = (void*)0x4;
     return 0;

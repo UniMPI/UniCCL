@@ -9,6 +9,11 @@ set(UNICC_TEST_FIXTURES_DIR ${CMAKE_CURRENT_BINARY_DIR}/fake)
 function(add_fake_unicc_fixture target source)
     add_library(${target} SHARED ${source})
     target_compile_features(${target} PRIVATE c_std_99)
+    # The fixtures share the native unique-id typedefs with the binders
+    # (src/unicc_native_id.h) so both sides use the exact same type - a call
+    # through a mismatched function-pointer type is UB under -fsanitize=function.
+    target_include_directories(${target} PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/include)
     set_target_properties(${target} PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY ${UNICC_TEST_FIXTURES_DIR}
         PREFIX "")

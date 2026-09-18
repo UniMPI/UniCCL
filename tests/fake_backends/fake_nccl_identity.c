@@ -12,6 +12,7 @@
  */
 #include <stdlib.h>
 #include <string.h>
+#include "unicc_native_id.h"
 
 #ifdef _WIN32
 #define FAKE_EXPORT __declspec(dllexport)
@@ -19,7 +20,9 @@
 #define FAKE_EXPORT __attribute__((visibility("default")))
 #endif
 
-typedef struct { char internal[128]; } ncclUniqueId;
+/* 128-byte unique id: the shared type from unicc_native_id.h - it must be
+ * the exact same type the nccl binding's dlsym cast uses (a mismatched
+ * function-pointer type is UB under -fsanitize=function). */
 typedef void* ncclComm_t;
 
 /* Distinctive fake version, NCCL encoding (major<<22)|(minor<<12)|patch. */
@@ -66,13 +69,13 @@ FAKE_EXPORT int ncclGetVersion(int *version) {
     return 0;
 }
 
-FAKE_EXPORT int ncclGetUniqueId(ncclUniqueId *id) {
+FAKE_EXPORT int ncclGetUniqueId(unicc_native_uid_t *id) {
     if (id) memset(id, 0xAB, sizeof(*id));
     return 0;
 }
 
 FAKE_EXPORT int ncclCommInitRank(ncclComm_t *comm, int nranks,
-                                 ncclUniqueId uid, int rank) {
+                                 unicc_native_uid_t uid, int rank) {
     (void)nranks; (void)uid; (void)rank;
     if (comm) *comm = (void*)0x1;
     return 0;

@@ -13,18 +13,20 @@
 #include "unicc_vtable.h"
 #include "unicc_platform.h"
 #include "unicc_errors.h"
+#include "unicc_native_id.h"
 #include <string.h>
 
-typedef struct { char internal[UNICC_UNIQUE_ID_BYTES]; } native_uid_t;
+/* Opaque 128-byte unique id (type shared with the fixtures via
+ * unicc_native_id.h; see the nccl.c comment for the sanitizer rationale). */
 
-static int (*s_get_unique_id)(native_uid_t *uid);
+static int (*s_get_unique_id)(unicc_native_uid_t *uid);
 static int (*s_comm_init_rank)(unicc_comm_t *comm, size_t numranks,
-                               native_uid_t uid, int rank);
+                               unicc_native_uid_t uid, int rank);
 static int (*s_broadcast)(const void *sendbuff, void *recvbuff, size_t count,
                           int datatype, int root, unicc_comm_t comm, void *stream);
 
 static int wrap_get_unique_id(unicc_comm_id_t *id) {
-    native_uid_t uid;
+    unicc_native_uid_t uid;
     int rc = s_get_unique_id(&uid);
     if (rc == 0) {
         id->len = UNICC_UNIQUE_ID_BYTES;
@@ -38,7 +40,7 @@ static int wrap_comm_init_rank(unicc_comm_t *comm, int nranks,
     if (id->len != UNICC_UNIQUE_ID_BYTES) {
         return UNICC_ERR_INVALID_ARGUMENT;
     }
-    native_uid_t uid;
+    unicc_native_uid_t uid;
     memcpy(uid.internal, id->data, UNICC_UNIQUE_ID_BYTES);
     return s_comm_init_rank(comm, (size_t)nranks, uid, rank);
 }
@@ -52,7 +54,7 @@ static int wrap_broadcast(void *buf, size_t count, int datatype, int root,
 int unicc_vtable_init_eccl(unicc_lib_handle_t handle) {
     /* core */
     unicc.get_version   = (int(*)(int*))unicc_platform_dlsym(handle, "ecclGetVersion");
-    s_comm_init_rank = (int(*)(unicc_comm_t*, size_t, native_uid_t, int))
+    s_comm_init_rank = (int(*)(unicc_comm_t*, size_t, unicc_native_uid_t, int))
         unicc_platform_dlsym(handle, "ecclCommInitRank");
     unicc.comm_init_rank = wrap_comm_init_rank;
     unicc.allreduce     = (int(*)(const void*, void*, size_t, int, int, unicc_comm_t, void*))
@@ -64,7 +66,7 @@ int unicc_vtable_init_eccl(unicc_lib_handle_t handle) {
     /* optional (may remain NULL -> gate via *_available).
      * ecclCommUserRank is intentionally not bound: no consumer in the
      * ecosystem exports it (see file header). */
-    s_get_unique_id = (int(*)(native_uid_t*))
+    s_get_unique_id = (int(*)(unicc_native_uid_t*))
         unicc_platform_dlsym(handle, "ecclGetUniqueId");
     unicc.get_unique_id = wrap_get_unique_id;
     unicc.comm_destroy  = (int(*)(unicc_comm_t))unicc_platform_dlsym(handle, "ecclCommDestroy");

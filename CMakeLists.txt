@@ -33,6 +33,9 @@ add_library(unicc::unicc ALIAS unicc)
 target_include_directories(unicc PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
+# Internal-only headers (e.g. unicc_native_id.h, shared with the fake
+# fixtures) live under src/ and never get installed.
+target_include_directories(unicc PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 # C99 keeps the fake backends / tests simple and portable.
 target_compile_features(unicc PUBLIC c_std_99)

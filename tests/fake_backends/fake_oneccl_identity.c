@@ -6,6 +6,7 @@
  * binding was actually bound rather than some nccl*-family path). */
 #include <stdlib.h>
 #include <string.h>
+#include "unicc_native_id.h"
 
 #ifdef _WIN32
 #define FAKE_EXPORT __declspec(dllexport)
@@ -13,10 +14,10 @@
 #define FAKE_EXPORT __attribute__((visibility("default")))
 #endif
 
-#define FAKE_ONECCL_UID_BYTES 4096
 #define FAKE_ONECCL_VERSION ((2022U << 22) | (1U << 12) | 0U)  /* 2022.1.0 */
 
-typedef struct { char internal[FAKE_ONECCL_UID_BYTES]; } onecclUniqueId;
+/* 4096-byte unique id: the shared type from unicc_native_id.h - it must be
+ * the exact same type the oneccl binding's dlsym cast uses. */
 typedef void* onecclComm_t;
 
 static size_t fake_dt_size(int dt) {
@@ -60,13 +61,13 @@ FAKE_EXPORT int onecclGetVersion(int *version) {
     return 0;
 }
 
-FAKE_EXPORT int onecclGetUniqueId(onecclUniqueId *id) {
+FAKE_EXPORT int onecclGetUniqueId(unicc_native_uid_oneccl_t *id) {
     if (id) memset(id, 0x11, sizeof(*id));
     return 0;
 }
 
 FAKE_EXPORT int onecclCommInitRank(onecclComm_t *comm, size_t nranks,
-                                   onecclUniqueId uid, int rank) {
+                                   unicc_native_uid_oneccl_t uid, int rank) {
     (void)nranks; (void)uid; (void)rank;
     if (comm) *comm = (void*)0x3;
     return 0;
