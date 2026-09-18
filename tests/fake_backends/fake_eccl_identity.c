@@ -86,7 +86,7 @@ FAKE_EXPORT int ecclCommCount(ecclComm_t comm, int *count) {
     return 0;
 }
 
-FAKE_EXPORT int ecclAllReduce(void *sendbuff, void *recvbuff, size_t count,
+FAKE_EXPORT int ecclAllReduce(const void *sendbuff, void *recvbuff, size_t count,
                               int datatype, int op, ecclComm_t comm, void *stream) {
     (void)comm; (void)stream;
     eccl_allreduce_impl(sendbuff, recvbuff, count, datatype, op);

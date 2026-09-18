@@ -90,7 +90,7 @@ FAKE_EXPORT int onecclCommUserRank(onecclComm_t comm, int *rank) {
     return 0;
 }
 
-FAKE_EXPORT int onecclAllReduce(void *sendbuff, void *recvbuff, size_t count,
+FAKE_EXPORT int onecclAllReduce(const void *sendbuff, void *recvbuff, size_t count,
                                 int datatype, int op, onecclComm_t comm, void *stream) {
     (void)comm; (void)stream;
     oneccl_allreduce_impl(sendbuff, recvbuff, count, datatype, op);
