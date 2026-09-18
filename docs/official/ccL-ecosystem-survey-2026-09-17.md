@@ -78,7 +78,7 @@ on real hardware by `nm -D`).
 - **Case split**:
   - If UniCCL's consumers are only NVIDIA/AMD/Hygon (all `nccl*`): value is
     thin — firmware-ish: fixed sonames, one identity/capability gate. Limited.
-  - If UniCCL must let upper layers (UMC) run on *any* CCL (Intel + domestic
+  - If UniCCL must let upper layers (UniMemCom) run on *any* CCL (Intel + domestic
     cards): **UniCCL is necessary**. The upper layer faces five-plus prefixes
     (`oneccl`/`cncl`/`hccl`/`mccl`/`eccl`) and distinct `.so` names — exactly
     the "unified entry + per-backend native symbols" model the project

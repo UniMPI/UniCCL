@@ -4,7 +4,7 @@
 /* UniCCL - a unified collective-communication layer over NCCL / RCCL (and
  * future GPU collective libraries).
  *
- * Upper layers (UMC, applications) depend ONLY on this header. Nothing here
+ * Upper layers (UniMemCom, applications) depend ONLY on this header. Nothing here
  * refers to nccl.h / rccl.h or to CUDA / ROCm, so consumers build without any
  * GPU vendor headers and pick a backend at runtime through the environment:
  *   UNICC_LIBRARY=<exact path>  UNICC_BACKEND=nccl|rccl

@@ -6,7 +6,7 @@ semantic `unicc_*` API over *any* collective-communication library — NVIDIA
 each backend **loads and binds its own native symbol family**. A backend is
 chosen at run time via the environment; the wrapper loads it with `dlopen`,
 binds its symbols through a vtable, and degrades gracefully when a symbol is
-missing. Upper layers (notably UMC, the Unified Memory & Communication
+missing. Upper layers (notably UniMemCom, the Unified Memory & Communication
 middleware) depend only on `include/unicc.h` and never touch `nccl.h` /
 `rccl.h` / CUDA / ROCm.
 
@@ -26,7 +26,7 @@ later milestone (docs/BACKENDS.md "Identification order").
 
 ```
 ┌─────────────────────────┐
-│ upper layer / UMC       │   depends only on unicc.h
+│ upper layer / UniMemCom │  depends only on unicc.h
 └────────────┬────────────┘
              │  unicc_* API (unicc_api.c)
 ┌────────────▼────────────┐
@@ -133,7 +133,7 @@ docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
 - **M2.2** minimal `unicc_*` API + nccl/rccl bindings + fake tests ✅
 - **M2.3** real-backend integration + SUPPORT_MATRIX (runner + harness in place;
   execution on GPU images pending)
-- **M2.4** UMC pilot integration (next)
+- **M2.4** UniMemCom pilot integration (next)
 - **P1 (backend matrix)** id-type upgrade, per-backend datatype/op tables,
   multi-backend identify, `oneccl` + `eccl` bindings + fixtures ✅ (v0.2.0)
 - **P2 (backend matrix)** CNCL / HCCL / dual MCCL adapters + real-host

@@ -1,6 +1,6 @@
 /* unicc_api.c - unified unicc_* semantic API.
  *
- * This is the only layer UMC and applications call. It owns the lifecycle
+ * This is the only layer UniMemCom and applications call. It owns the lifecycle
  * state machine, maps UniCCL's own datatype/op enums onto the active backend's
  * numeric values, gates every slot for NULL (-> UNICC_ERR_NOT_SUPPORTED) and
  * keeps the raw result of the last failed backend call. */
