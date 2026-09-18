@@ -46,7 +46,11 @@ typedef enum {
 
 /* --- Lifecycle ------------------------------------------------- */
 /* Load + identify + bind the backend selected by the environment and prime
- * the dispatch table. Returns UNICC_OK, or a unified error code. */
+ * the dispatch table. Returns UNICC_OK, or a unified error code. Error
+ * semantics: with neither UNICC_LIBRARY nor UNICC_BACKEND set, a failed
+ * default probe (libnccl.so) reports UNICC_ERR_NO_BACKEND (absent backend is
+ * expected on non-GPU hosts); an explicit environment selection that fails to
+ * load reports UNICC_ERR_BACKEND_LOAD. */
 int unicc_init(void);
 int unicc_finalize(void);
 int unicc_is_initialized(void);

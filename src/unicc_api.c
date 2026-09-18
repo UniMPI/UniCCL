@@ -76,6 +76,16 @@ int unicc_init(void) {
     rc = unicc_loader_load(lib_path, &handle);
     if (rc != UNICC_OK) {
         g_lib_path[0] = '\0';
+        /* Distinguish "no backend configured" from "configured but broken":
+         * with neither UNICC_LIBRARY nor UNICC_BACKEND set, detect probes a
+         * default library (libnccl.so); a failed probe is NO_BACKEND (absent
+         * backend is the expected state on non-GPU hosts), while a failure to
+         * load an explicitly selected backend stays BACKEND_LOAD. */
+        if (rc == UNICC_ERR_BACKEND_LOAD &&
+            !unicc_loader_get_env_backend() &&
+            !unicc_loader_get_env_libpath()) {
+            return UNICC_ERR_NO_BACKEND;
+        }
         return rc;
     }
 

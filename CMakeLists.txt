@@ -48,6 +48,12 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(unicc PRIVATE -Wall -Wextra)
 endif()
 
+# The static archive is frequently linked into downstream shared libraries
+# (e.g. an upper-layer shared lib), so build it position-independent: without
+# this, each consumer has to set POSITION_INDEPENDENT_CODE on the dependency
+# itself (reported by the UniMemCom integration).
+set_target_properties(unicc PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # --- install ----------------------------------------------------------------
 include(GNUInstallDirs)
 install(TARGETS unicc
