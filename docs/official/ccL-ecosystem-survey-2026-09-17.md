@@ -37,14 +37,14 @@
 | AMD | RCCL (NCCL fork) | `nccl*` | yes (fork; 69 `nccl*` fns) | full | high (official) | 2.30.4 docs; ROCm/rccl, rocm-systems |
 | Hygon DCU | DTK `librccl.so` | `nccl*` | yes (only family) | full | verified (real host) | `version=21304`, `sum=3` |
 | Intel | oneCCL (v2 C API) / PyTorch built-in **XCCL** ("xccl") | `oneccl*` | no | strong (official: "closely follows NCCL API standard") | high (official) | uxlfoundation/oneCCL `include/oneapi/ccl.h`; pytorch `distributed_c10d.py` `Backend.XCCL`; intel/torch-xpu-ops `src/xccl` |
-| Cambricon 寒武纪 | **CNCL** (Neuware/CNToolkit) | `cncl*` | no | strong (same-shape API: `cnclCliqueId_t`, `cnclInitComms`…) | high (official source) | Cambricon/torch_mlu: `cncl_utils.cpp`, `ProcessGroupCNCL.cpp`, `FindCNCL.cmake` |
-| Ascend 昇腾 | **HCCL** (CANN) | `hccl*` | no | strong/medium (community says NCCL-compatible; officially own API) | medium-high | Ascend/pytorch (torch_npu, `TORCH_HCCL_*`), community |
-| Moore Threads 摩尔线程 | **MCCL** (MUSA) | `mccl*` | no | renamed port of NCCL (residual `nccl*` calls in source) | high (official source) | MooreThreads/torch_musa `ProcessGroupMCCL.cpp`; **official apt: `mccl-s4000` / `mccl-s5000`** |
-| MetaX 沐曦 | **MCCL** (MetaX) + `mxccl_plugin` | `mccl*` | plugin claims "compatible with NCCL 21605" (to verify) | strong (env vars mirror `NCCL_*`), official doc "对应 NVIDIA 的 NCCL" | high (official apt + docs) | **official apt: `mccl_*`, `mxccl_plugin_*` — "Maca Collective Communication Lib plugin which is compatible with NCCL 21605"**; ms-swift Metax docs |
-| Enflame 燧原 | **ECCL** (TopsRider) | `eccl*` | no | strong (official maps backend "nccl"→"eccl") | high (official README) | EnflameTechnology/torch-gcu (`dist.init_process_group("eccl")`) |
-| Iluvatar 天数智芯 | IXCCL (name unconfirmed) | `ixcc*`? | unknown | unknown | low (community) | no official CCL repo found; low-confidence articles |
-| Biren 壁仞 | unconfirmed (SCCL/BLink in one low-confidence article) | unknown | unknown | unknown | low | no official CCL evidence |
-| JingJiaWei 景嘉微 | none | — | no | n/a | not applicable | graphics/inference positioning only |
+| Cambricon | **CNCL** (Neuware/CNToolkit) | `cncl*` | no | strong (same-shape API: `cnclCliqueId_t`, `cnclInitComms`…) | high (official source) | Cambricon/torch_mlu: `cncl_utils.cpp`, `ProcessGroupCNCL.cpp`, `FindCNCL.cmake` |
+| Ascend | **HCCL** (CANN) | `hccl*` | no | strong/medium (community says NCCL-compatible; officially own API) | medium-high | Ascend/pytorch (torch_npu, `TORCH_HCCL_*`), community |
+| Moore Threads | **MCCL** (MUSA) | `mccl*` | no | renamed port of NCCL (residual `nccl*` calls in source) | high (official source) | MooreThreads/torch_musa `ProcessGroupMCCL.cpp`; **official apt: `mccl-s4000` / `mccl-s5000`** |
+| MetaX | **MCCL** (MetaX) + `mxccl_plugin` | `mccl*` | plugin claims "compatible with NCCL 21605" (to verify) | strong (env vars mirror `NCCL_*`), official doc "corresponds to NVIDIA's NCCL" | high (official apt + docs) | **official apt: `mccl_*`, `mxccl_plugin_*` — "Maca Collective Communication Lib plugin which is compatible with NCCL 21605"**; ms-swift Metax docs |
+| Enflame | **ECCL** (TopsRider) | `eccl*` | no | strong (official maps backend "nccl"→"eccl") | high (official README) | EnflameTechnology/torch-gcu (`dist.init_process_group("eccl")`) |
+| Iluvatar | IXCCL (name unconfirmed) | `ixcc*`? | unknown | unknown | low (community) | no official CCL repo found; low-confidence articles |
+| Biren | unconfirmed (SCCL/BLink in one low-confidence article) | unknown | unknown | unknown | low | no official CCL evidence |
+| JingJiaWei | none | — | no | n/a | not applicable | graphics/inference positioning only |
 | Apple MPS | none (PyTorch falls back to Gloo) | — | no | no | medium | pytorch `default_device_backend_map["mps"]=GLOO` |
 | Google TPU | XLA/GSPMD (own path) | — | no | no | medium | XLA collective semantics |
 | AWS Trainium / Tesla Dojo | own stacks | — | no | no | no authoritative public evidence found | n/a |
