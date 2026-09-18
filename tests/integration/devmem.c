@@ -11,7 +11,7 @@ typedef int (*set_device_fn)(int);
 typedef int (*device_count_fn)(int *);
 
 static int load_runtime(const char *const *libs, const char *prefix,
-                        xcc_devmem_t *api) {
+                        unicc_devmem_t *api) {
     void *h = NULL;
     for (int i = 0; libs[i] && !h; i++) {
         h = dlopen(libs[i], RTLD_NOW | RTLD_GLOBAL);
@@ -45,7 +45,7 @@ static int load_runtime(const char *const *libs, const char *prefix,
     return 0;
 }
 
-int xcc_devmem_load(xcc_devmem_t *api) {
+int unicc_devmem_load(unicc_devmem_t *api) {
     const char *cuda_libs[] = {"libcudart.so", "libcudart.so.13",
                                "libcudart.so.12", NULL};
     const char *hip_libs[] = {"libamdhip64.so", "libamdhip64.so.6",

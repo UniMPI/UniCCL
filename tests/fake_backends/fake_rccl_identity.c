@@ -4,7 +4,7 @@
  * families. NOTE: modern AMD RCCL's public API is nccl*-named with no public
  * rccl* symbols (docs/official/), so this fixture models a historical /
  * third-party shape, not current AMD RCCL. It stays as the discriminating
- * check: XCCL must identify such a library as RCCL (rccl* exclusives are
+ * check: UniCCL must identify such a library as RCCL (rccl* exclusives are
  * checked first) and bind the rccl* symbols - never the nccl* ones.
  * rcclGetVersion and rcclAllReduce return values distinct from their nccl*
  * twins so tests can prove the rccl* family was actually bound.

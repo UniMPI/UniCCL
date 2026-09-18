@@ -1,13 +1,13 @@
-# XCCL — a unified entry point for any collective-communication library
+# UniCCL — a unified entry point for any collective-communication library
 
-XCCL's point is **not** to make everything "be NCCL". It is to expose one
-semantic `xcc_*` API over *any* collective-communication library — NVIDIA
+UniCCL's point is **not** to make everything "be NCCL". It is to expose one
+semantic `unicc_*` API over *any* collective-communication library — NVIDIA
 **NCCL**, AMD **RCCL**, and in time domestic-GPU collective libraries — while
 each backend **loads and binds its own native symbol family**. A backend is
 chosen at run time via the environment; the wrapper loads it with `dlopen`,
 binds its symbols through a vtable, and degrades gracefully when a symbol is
 missing. Upper layers (notably UMC, the Unified Memory & Communication
-middleware) depend only on `include/xcc.h` and never touch `nccl.h` /
+middleware) depend only on `include/unicc.h` and never touch `nccl.h` /
 `rccl.h` / CUDA / ROCm.
 
 One fact worth stating up front (evidence in `docs/official/`): NVIDIA NCCL,
@@ -18,16 +18,16 @@ for all three today; the *vendor identity* of a loaded library is a separate
 question, answered by its own probe, not by the symbol prefix.
 
 This is the **M2 skeleton**: platform abstraction, runtime backend loading,
-the minimal `xcc_*` collective face, `nccl` / `rccl` bindings and a fake-backend
+the minimal `unicc_*` collective face, `nccl` / `rccl` bindings and a fake-backend
 unit suite that runs on any Linux host with no GPU at all.
 
 ```
 ┌─────────────────────────┐
-│ upper layer / UMC       │   depends only on xcc.h
+│ upper layer / UMC       │   depends only on unicc.h
 └────────────┬────────────┘
-             │  xcc_* API (xcc_api.c)
+             │  unicc_* API (unicc_api.c)
 ┌────────────▼────────────┐
-│ XCCL wrapper            │   loader + vtable + availability gates
+│ UniCCL wrapper            │   loader + vtable + availability gates
 └──────┬────────────┬─────┘
        │            │
   backends/        backends/
@@ -40,13 +40,13 @@ unit suite that runs on any Linux host with no GPU at all.
 
 | # | Mechanism | Where |
 |---|-----------|-------|
-| 1 | dlopen/dlsym platform abstraction | `src/xcc_platform_posix.c` / `_windows.c` |
-| 2 | backend table (nccl, rccl) + soname fallback | `src/xcc_loader.c` |
-| 3 | selection priority `XCCL_LIBRARY` → `XCCL_BACKEND` → default | `src/xcc_loader.c` |
-| 4 | identify-by-feature-symbol (**rccl\* checked before nccl\*, see BACKENDS.md**) | `src/xcc_loader.c` |
-| 5 | zero-initialized vtable + core check + per-backend dispatch | `src/xcc_vtable.c` |
+| 1 | dlopen/dlsym platform abstraction | `src/unicc_platform_posix.c` / `_windows.c` |
+| 2 | backend table (nccl, rccl) + soname fallback | `src/unicc_loader.c` |
+| 3 | selection priority `UNICC_LIBRARY` → `UNICC_BACKEND` → default | `src/unicc_loader.c` |
+| 4 | identify-by-feature-symbol (**rccl\* checked before nccl\*, see BACKENDS.md**) | `src/unicc_loader.c` |
+| 5 | zero-initialized vtable + core check + per-backend dispatch | `src/unicc_vtable.c` |
 | 6 | dlsym bindings, missing symbol → NULL | `src/backends/nccl.c`, `src/backends/rccl.c` |
-| 7 | unified `xcc_*` semantic API + `*_available()` gates | `src/xcc_api.c`, `include/xcc.h` |
+| 7 | unified `unicc_*` semantic API + `*_available()` gates | `src/unicc_api.c`, `include/unicc.h` |
 | 8 | fake-backend unit tests (host, no GPU) | `tests/` |
 | 9 | real-backend integration test (opt-in) | `tests/integration/` |
 
@@ -61,27 +61,27 @@ ctest --test-dir build --output-on-failure    # unit suite, all green
 ```
 
 Optional integration build (requires a real NCCL/RCCL host to *run*; it still
-compiles anywhere): `-DXCCL_BUILD_TESTS_INTEGRATION=ON`.
+compiles anywhere): `-DUNICC_BUILD_TESTS_INTEGRATION=ON`.
 
 ## Quick local run (no GPU needed)
 
 ```bash
-XCCL_LIBRARY=build/tests/fake/fake_nccl_identity.so ./build/minimal
-XCCL_LIBRARY=build/tests/fake/fake_rccl_identity.so   ./build/minimal
+UNICC_LIBRARY=build/tests/fake/fake_nccl_identity.so ./build/minimal
+UNICC_LIBRARY=build/tests/fake/fake_rccl_identity.so   ./build/minimal
 ```
 
 Real backend:
 
 ```bash
-XCCL_BACKEND=nccl ./build/minimal          # NVIDIA host
-XCCL_BACKEND=rccl ./build/minimal          # AMD / ROCm host
+UNICC_BACKEND=nccl ./build/minimal          # NVIDIA host
+UNICC_BACKEND=rccl ./build/minimal          # AMD / ROCm host
 ```
 
 ## Runtime backend selection
 
-1. `XCCL_LIBRARY` — exact library path or loader-resolvable name
+1. `UNICC_LIBRARY` — exact library path or loader-resolvable name
    (the CI / test path);
-2. `XCCL_BACKEND` — `nccl` or `rccl`;
+2. `UNICC_BACKEND` — `nccl` or `rccl`;
 3. platform default — NVIDIA NCCL (`libnccl.so`, falling back to
    `libnccl.so.2`). CUDA/ROCm-presence defaulting is left for a later
    milestone.
@@ -92,8 +92,8 @@ dual-symbol (`rccl*` + `nccl*` compat) identification subtlety.
 ## Repo layout
 
 ```
-include/     public contract: xcc.h, xcc_vtable.h, xcc_backends.h,
-             xcc_platform.h, xcc_errors.h, xcc_version.h
+include/     public contract: unicc.h, unicc_vtable.h, unicc_backends.h,
+             unicc_platform.h, unicc_errors.h, unicc_version.h
 src/         loader, vtable, api, platform, backends/{nccl,rccl}.c
 tests/       fake fixtures + unit tests + integration test + runner
 examples/    minimal.c
@@ -118,7 +118,7 @@ docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
 ## Milestone map (from the D2 unified-communication-stack decision)
 
 - **M2.1** platform + loader + vtable ✅
-- **M2.2** minimal `xcc_*` API + nccl/rccl bindings + fake tests ✅
+- **M2.2** minimal `unicc_*` API + nccl/rccl bindings + fake tests ✅
 - **M2.3** real-backend integration + SUPPORT_MATRIX (runner + harness in place;
   execution on GPU images pending)
 - **M2.4** UMC pilot integration (next)

@@ -2,7 +2,7 @@
 
 > Retrieval date: **2026-09-17**. Data fetched via HTTP, converted to Markdown
 > (navigation chrome removed). Full pages live at the URLs listed; this file is
-> the curated, verifiable excerpt that XCCL's design facts cite.
+> the curated, verifiable excerpt that UniCCL's design facts cite.
 
 ## Recorded pages
 

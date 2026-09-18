@@ -4,11 +4,11 @@
  * signatures, so the loader / vtable / API tests run on hosts with no real
  * NCCL installed. Exports a distinctive version and implements a host-side
  * element-wise SUM allreduce, which lets tests prove the nccl* family bound
- * and that data actually round-trips through the XCCL layers.
+ * and that data actually round-trips through the UniCCL layers.
  *
  * Compile-time variant (mirrors unimpi's fake fixtures):
- *   XCC_FAKE_OMIT_GROUP_END - leave ncclGroupEnd out; the vtable slot
- *   degrades to NULL and xcc_group_end() returns XCC_ERR_NOT_SUPPORTED.
+ *   UNICC_FAKE_OMIT_GROUP_END - leave ncclGroupEnd out; the vtable slot
+ *   degrades to NULL and unicc_group_end() returns UNICC_ERR_NOT_SUPPORTED.
  */
 #include <stdlib.h>
 #include <string.h>
@@ -112,7 +112,7 @@ FAKE_EXPORT int ncclGroupStart(void) {
     return 0;
 }
 
-#ifndef XCC_FAKE_OMIT_GROUP_END
+#ifndef UNICC_FAKE_OMIT_GROUP_END
 FAKE_EXPORT int ncclGroupEnd(void) {
     return 0;
 }

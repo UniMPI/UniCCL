@@ -6,8 +6,10 @@
 > source, and secondary community material. Every claim is tagged with an
 > evidence grade; "no authoritative evidence" is written out explicitly.
 > This record answers the strategy question *"if everyone uses NCCL, do we
-> still need XCCL?"* — the short answer is **yes, but with a recalibrated
-> thesis**, because the premise is false at the symbol level.
+> still need the unified collective layer?"* — the short answer is **yes,
+> but with a recalibrated thesis**, because the premise is false at the
+> symbol level. (The layer, written as *XCCL* throughout the original
+> survey, was renamed **UniCCL** on 2026-09-17 — see "Naming hazard".)
 
 ## Headline
 
@@ -67,17 +69,17 @@ repackaging `libnccl.so`, and that "compatible with NCCL" is a *claim about
 the NCCL contract*, not a statement of `nccl*` ABI export (to be confirmed
 on real hardware by `nm -D`).
 
-## Do we still need XCCL? — reasoned answer
+## Do we still need it (UniCCL)? — reasoned answer
 
 - **Premise check**: the worry "if everyone is NCCL, no unified layer is
   needed" is **disproven at the symbol level** — Intel and every domestic
   training-card vendor deliberately keep their own prefixes; only AMD/Hygon
   reuse `nccl*` through a fork / compat layer.
 - **Case split**:
-  - If XCCL's consumers are only NVIDIA/AMD/Hygon (all `nccl*`): value is
+  - If UniCCL's consumers are only NVIDIA/AMD/Hygon (all `nccl*`): value is
     thin — firmware-ish: fixed sonames, one identity/capability gate. Limited.
-  - If XCCL must let upper layers (UMC) run on *any* CCL (Intel + domestic
-    cards): **XCCL is necessary**. The upper layer faces five-plus prefixes
+  - If UniCCL must let upper layers (UMC) run on *any* CCL (Intel + domestic
+    cards): **UniCCL is necessary**. The upper layer faces five-plus prefixes
     (`oneccl`/`cncl`/`hccl`/`mccl`/`eccl`) and distinct `.so` names — exactly
     the "unified entry + per-backend native symbols" model the project
     adopted.
@@ -90,7 +92,7 @@ on real hardware by `nm -D`).
 - **Explicit ceiling (honesty)**: no effort should go into `nccl*` ABI
   compatibility (no vendor endorses it; only the AMD fork benefits). If the
   ecosystem ever truly ABI-unifies (unlikely — AMD/Intel won't drop their
-  brands), XCCL degrades to a loading layer and should be re-examined on
+  brands), UniCCL degrades to a loading layer and should be re-examined on
   cost grounds then.
 
 ## Open items (verification list)
@@ -105,11 +107,16 @@ on real hardware by `nm -D`).
 4. **Iluvatar / Biren**: no authoritative CCL evidence found; treat as
    unknown until a real software stack is examined.
 
-## Naming hazard (recorded)
+## Naming hazard (recorded) — resolved by the rename
 
 PyTorch registers a built-in Intel backend named **XCCL** (`"xccl"`), which
-is oneCCL's entry into PyTorch for Intel XPU. This project is also called
-XCCL. External docs must note the name collision to avoid confusion.
+is oneCCL's entry into PyTorch for Intel XPU. The unified layer was *also*
+originally called XCCL, and the two are unrelated. On **2026-09-17** the
+project was renamed to **UniCCL** — API prefix `unicc_`, headers
+`include/unicc*.h`, env `UNICC_*`, CMake target `unicc::unicc` — precisely
+to avoid that collision, and as a sibling of the UniMPI naming family this
+mechanism is modeled on. Any "XCCL" above that does not refer to PyTorch's
+backend is historical text for this layer written before the rename.
 
 ## Source URLs
 

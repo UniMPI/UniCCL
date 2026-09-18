@@ -6,8 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "xcc_vtable.h"
-#include "xcc_backends.h"
+#include "unicc_vtable.h"
+#include "unicc_backends.h"
 
 static int g_failures = 0;
 #define CHECK(cond) do { \
@@ -26,52 +26,52 @@ int main(int argc, char **argv) {
     }
 
     /* The global table must start fully zero-initialized. */
-    CHECK(xcc.get_version == NULL);
-    CHECK(xcc.comm_init_rank == NULL);
-    CHECK(xcc.allreduce == NULL);
-    CHECK(xcc.broadcast == NULL);
-    CHECK(xcc.get_unique_id == NULL);
-    CHECK(xcc.comm_destroy == NULL);
-    CHECK(xcc.comm_count == NULL);
-    CHECK(xcc.comm_user_rank == NULL);
-    CHECK(xcc.group_start == NULL);
-    CHECK(xcc.group_end == NULL);
+    CHECK(unicc.get_version == NULL);
+    CHECK(unicc.comm_init_rank == NULL);
+    CHECK(unicc.allreduce == NULL);
+    CHECK(unicc.broadcast == NULL);
+    CHECK(unicc.get_unique_id == NULL);
+    CHECK(unicc.comm_destroy == NULL);
+    CHECK(unicc.comm_count == NULL);
+    CHECK(unicc.comm_user_rank == NULL);
+    CHECK(unicc.group_start == NULL);
+    CHECK(unicc.group_end == NULL);
 
     /* Full NCCL-shaped fake: init fills every slot. */
     if (fake_nccl) {
-        xcc_lib_handle_t h = NULL;
-        CHECK(xcc_loader_load(fake_nccl, &h) == XCC_OK);
-        CHECK(xcc_vtable_init(h) == XCC_OK);
-        CHECK(xcc_get_backend_type() == XCC_BACKEND_NCCL);
-        CHECK(xcc.get_version != NULL);
-        CHECK(xcc.comm_init_rank != NULL);
-        CHECK(xcc.allreduce != NULL);
-        CHECK(xcc.broadcast != NULL);
-        CHECK(xcc.get_unique_id != NULL);
-        CHECK(xcc.comm_destroy != NULL);
-        CHECK(xcc.comm_count != NULL);
-        CHECK(xcc.comm_user_rank != NULL);
-        CHECK(xcc.group_start != NULL);
-        CHECK(xcc.group_end != NULL);
+        unicc_lib_handle_t h = NULL;
+        CHECK(unicc_loader_load(fake_nccl, &h) == UNICC_OK);
+        CHECK(unicc_vtable_init(h) == UNICC_OK);
+        CHECK(unicc_get_backend_type() == UNICC_BACKEND_NCCL);
+        CHECK(unicc.get_version != NULL);
+        CHECK(unicc.comm_init_rank != NULL);
+        CHECK(unicc.allreduce != NULL);
+        CHECK(unicc.broadcast != NULL);
+        CHECK(unicc.get_unique_id != NULL);
+        CHECK(unicc.comm_destroy != NULL);
+        CHECK(unicc.comm_count != NULL);
+        CHECK(unicc.comm_user_rank != NULL);
+        CHECK(unicc.group_start != NULL);
+        CHECK(unicc.group_end != NULL);
 
-        xcc_vtable_cleanup();
-        CHECK(xcc.get_version == NULL);
-        CHECK(xcc.allreduce == NULL);
-        CHECK(xcc.group_end == NULL);
-        xcc_loader_unload(h);
+        unicc_vtable_cleanup();
+        CHECK(unicc.get_version == NULL);
+        CHECK(unicc.allreduce == NULL);
+        CHECK(unicc.group_end == NULL);
+        unicc_loader_unload(h);
     }
 
     /* Missing-symbol variant: optional slot stays NULL (degrade pattern);
      * core symbols are still present so vtable init succeeds. */
     if (fake_nccl_missing) {
-        xcc_lib_handle_t h = NULL;
-        CHECK(xcc_loader_load(fake_nccl_missing, &h) == XCC_OK);
-        CHECK(xcc_vtable_init(h) == XCC_OK);
-        CHECK(xcc.allreduce != NULL);
-        CHECK(xcc.group_start != NULL);
-        CHECK(xcc.group_end == NULL);   /* ncclGroupEnd omitted by the fixture */
-        xcc_vtable_cleanup();
-        xcc_loader_unload(h);
+        unicc_lib_handle_t h = NULL;
+        CHECK(unicc_loader_load(fake_nccl_missing, &h) == UNICC_OK);
+        CHECK(unicc_vtable_init(h) == UNICC_OK);
+        CHECK(unicc.allreduce != NULL);
+        CHECK(unicc.group_start != NULL);
+        CHECK(unicc.group_end == NULL);   /* ncclGroupEnd omitted by the fixture */
+        unicc_vtable_cleanup();
+        unicc_loader_unload(h);
     }
 
     if (g_failures == 0) {

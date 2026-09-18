@@ -57,10 +57,11 @@ public symbol family**; `rccl*` exists exclusively inside the implementation
 in the old assumption (`rcclGetVersion`, `rcclCommInitRank`, `rcclBroadcast`,
 …) is present in the source.
 
-Implication for XCCL: the "identify by `rccl*` presence" rule has no real
+Implication for UniCCL: the "identify by `rccl*` presence" rule has no real
 target on current AMD RCCL. Real RCCL is `nccl*`-only, exactly like Hygon
-DCU's `nccl*`-compat layer — so on a first pass XCCL would identify both as
-NCCL, and vendor identity must come from a separate probe (see `BACKENDS.md`).
+DCU's `nccl*`-compat layer — so on a first pass UniCCL would identify both
+as NCCL, and vendor identity must come from a separate probe (see
+`BACKENDS.md`).
 
 ## Caveats
 

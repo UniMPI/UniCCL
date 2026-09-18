@@ -1,26 +1,26 @@
-/* xcc_platform_posix.c - dl* abstraction for POSIX (Linux/macOS). */
-#include "xcc_platform.h"
+/* unicc_platform_posix.c - dl* abstraction for POSIX (Linux/macOS). */
+#include "unicc_platform.h"
 #include <dlfcn.h>
 
-xcc_lib_handle_t xcc_platform_dlopen(const char *path) {
+unicc_lib_handle_t unicc_platform_dlopen(const char *path) {
     return dlopen(path, RTLD_NOW | RTLD_GLOBAL);
 }
 
-void xcc_platform_dlclose(xcc_lib_handle_t handle) {
+void unicc_platform_dlclose(unicc_lib_handle_t handle) {
     if (handle) {
         dlclose(handle);
     }
 }
 
-void* xcc_platform_dlsym(xcc_lib_handle_t handle, const char *symbol) {
+void* unicc_platform_dlsym(unicc_lib_handle_t handle, const char *symbol) {
     return dlsym(handle, symbol);
 }
 
-const char* xcc_platform_dlerror(void) {
+const char* unicc_platform_dlerror(void) {
     return dlerror();
 }
 
-const char* xcc_platform_load_advice(void) {
+const char* unicc_platform_load_advice(void) {
 #ifdef __APPLE__
     return "Troubleshooting:\n"
            "1. Check the library exists: ls -la <library_path>\n"

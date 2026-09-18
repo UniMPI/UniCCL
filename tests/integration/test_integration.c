@@ -1,24 +1,24 @@
 /* test_integration.c - real-backend (NCCL / RCCL) end-to-end test.
  *
- * Built only with XCCL_BUILD_TESTS_INTEGRATION=ON. Requires a GPU with NCCL
+ * Built only with UNICC_BUILD_TESTS_INTEGRATION=ON. Requires a GPU with NCCL
  * (NVIDIA) or RCCL (AMD) and the corresponding runtime, e.g. the tf-builder
  * ubuntu-24.04-gcc13-cuda / -rocm images or a GPU host. The backend itself is
- * chosen exactly like production, via XCCL_BACKEND / XCCL_LIBRARY.
+ * chosen exactly like production, via UNICC_BACKEND / UNICC_LIBRARY.
  *
  * World layout comes from the environment, so no MPI is needed:
- *   XCCL_TEST_WORLD_SIZE  number of ranks (default 1)
- *   XCCL_TEST_WORLD_RANK  this process's rank   (default 0)
- *   XCCL_TEST_UID_FILE    file rank 0 uses to publish the unique id
+ *   UNICC_TEST_WORLD_SIZE  number of ranks (default 1)
+ *   UNICC_TEST_WORLD_RANK  this process's rank   (default 0)
+ *   UNICC_TEST_UID_FILE    file rank 0 uses to publish the unique id
  *                         (required when size > 1)
  *
  * Each rank sends its own distinct vector; the SUM allreduce must return the
- * analytic sum over all ranks. Device buffers come from xcc_devmem (devmem.c),
+ * analytic sum over all ranks. Device buffers come from unicc_devmem (devmem.c),
  * preserving the no-vendor-header build guarantee. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include "xcc.h"
+#include "unicc.h"
 #include "devmem.h"
 
 static const char* env_or(const char *name, const char *dflt) {
@@ -27,41 +27,41 @@ static const char* env_or(const char *name, const char *dflt) {
 }
 
 int main(void) {
-    int world = atoi(env_or("XCCL_TEST_WORLD_SIZE", "1"));
-    int rank  = atoi(env_or("XCCL_TEST_WORLD_RANK", "0"));
-    const char *uid_file = getenv("XCCL_TEST_UID_FILE");
+    int world = atoi(env_or("UNICC_TEST_WORLD_SIZE", "1"));
+    int rank  = atoi(env_or("UNICC_TEST_WORLD_RANK", "0"));
+    const char *uid_file = getenv("UNICC_TEST_UID_FILE");
 
     if (world < 1 || rank < 0 || rank >= world) {
         fprintf(stderr, "bad world config: size=%d rank=%d\n", world, rank);
         return 2;
     }
 
-    xcc_result_t rc = xcc_init();
-    if (rc != XCC_OK) {
-        fprintf(stderr, "xcc_init failed: %s\n", xcc_error_string(rc));
+    unicc_result_t rc = unicc_init();
+    if (rc != UNICC_OK) {
+        fprintf(stderr, "unicc_init failed: %s\n", unicc_error_string(rc));
         return 2;
     }
-    printf("[rank %d] backend=%s library=%s\n", rank, xcc_backend_name(),
-           xcc_get_library_path());
+    printf("[rank %d] backend=%s library=%s\n", rank, unicc_backend_name(),
+           unicc_get_library_path());
 
     int bv = 0;
-    xcc_backend_version(&bv);
+    unicc_backend_version(&bv);
 
     /* Bootstrap the unique id: rank 0 publishes, others poll for it. */
-    xcc_unique_id_t uid;
+    unicc_unique_id_t uid;
     if (rank == 0) {
-        rc = xcc_get_unique_id(&uid);
-        if (rc != XCC_OK) {
-            fprintf(stderr, "xcc_get_unique_id failed: %s\n", xcc_error_string(rc));
+        rc = unicc_get_unique_id(&uid);
+        if (rc != UNICC_OK) {
+            fprintf(stderr, "unicc_get_unique_id failed: %s\n", unicc_error_string(rc));
             return 2;
         }
         if (world > 1) {
             if (!uid_file) {
-                fprintf(stderr, "XCCL_TEST_UID_FILE required when size > 1\n");
+                fprintf(stderr, "UNICC_TEST_UID_FILE required when size > 1\n");
                 return 2;
             }
             FILE *f = fopen(uid_file, "w");
-            if (!f || fwrite(uid.data, 1, XCC_UNIQUE_ID_BYTES, f) != XCC_UNIQUE_ID_BYTES) {
+            if (!f || fwrite(uid.data, 1, UNICC_UNIQUE_ID_BYTES, f) != UNICC_UNIQUE_ID_BYTES) {
                 fprintf(stderr, "failed to publish uid\n");
                 return 2;
             }
@@ -73,15 +73,15 @@ int main(void) {
             f = fopen(uid_file, "r");
             if (!f) usleep(10000);
         }
-        if (!f || fread(uid.data, 1, XCC_UNIQUE_ID_BYTES, f) != XCC_UNIQUE_ID_BYTES) {
+        if (!f || fread(uid.data, 1, UNICC_UNIQUE_ID_BYTES, f) != UNICC_UNIQUE_ID_BYTES) {
             fprintf(stderr, "failed to read published uid\n");
             return 2;
         }
         fclose(f);
     }
 
-    xcc_devmem_t dm;
-    if (xcc_devmem_load(&dm) != 0) {
+    unicc_devmem_t dm;
+    if (unicc_devmem_load(&dm) != 0) {
         fprintf(stderr, "no CUDA/HIP runtime available\n");
         return 2;
     }
@@ -105,10 +105,10 @@ int main(void) {
         return 2;
     }
 
-    xcc_comm_t comm = NULL;
-    rc = xcc_comm_init_rank(&comm, world, uid, rank);
-    if (rc != XCC_OK) {
-        fprintf(stderr, "xcc_comm_init_rank failed: %s\n", xcc_error_string(rc));
+    unicc_comm_t comm = NULL;
+    rc = unicc_comm_init_rank(&comm, world, uid, rank);
+    if (rc != UNICC_OK) {
+        fprintf(stderr, "unicc_comm_init_rank failed: %s\n", unicc_error_string(rc));
         return 2;
     }
 
@@ -123,16 +123,16 @@ int main(void) {
     float h_send[4], h_recv[4] = {0, 0, 0, 0};
     for (size_t i = 0; i < n; i++) h_send[i] = (float)(rank + 1);
 
-    dm.dev_memcpy((void*)d_send, h_send, n * sizeof(float), XCC_DEVMEM_H2D);
+    dm.dev_memcpy((void*)d_send, h_send, n * sizeof(float), UNICC_DEVMEM_H2D);
     dm.dev_memset((void*)d_recv, 0, n * sizeof(float));
 
-    rc = xcc_allreduce(d_send, d_recv, n, XCC_F32, XCC_SUM, comm, NULL);
-    if (rc != XCC_OK) {
-        fprintf(stderr, "xcc_allreduce failed: %s\n", xcc_error_string(rc));
+    rc = unicc_allreduce(d_send, d_recv, n, UNICC_F32, UNICC_SUM, comm, NULL);
+    if (rc != UNICC_OK) {
+        fprintf(stderr, "unicc_allreduce failed: %s\n", unicc_error_string(rc));
         return 2;
     }
 
-    dm.dev_memcpy(h_recv, (const void*)d_recv, n * sizeof(float), XCC_DEVMEM_D2H);
+    dm.dev_memcpy(h_recv, (const void*)d_recv, n * sizeof(float), UNICC_DEVMEM_D2H);
 
     /* Expected SUM over ranks: 1 + 2 + ... + world = world(world+1)/2. */
     float expected = (float)(world) * (float)(world + 1) / 2.0f;
@@ -147,17 +147,17 @@ int main(void) {
     if (!ok) return 2;
 
     int count = 0;
-    if (xcc_comm_count(comm, &count) != XCC_OK || count != world) {
+    if (unicc_comm_count(comm, &count) != UNICC_OK || count != world) {
         fprintf(stderr, "comm count mismatch\n");
         return 2;
     }
 
     dm.dev_free(d_send);
     dm.dev_free(d_recv);
-    if (xcc_comm_destroy(comm) != XCC_OK) return 2;
+    if (unicc_comm_destroy(comm) != UNICC_OK) return 2;
 
     printf("[rank %d] PASS (backend=%s version=%d sum=%.0f)\n",
-           rank, xcc_backend_name(), bv, expected);
-    rc = xcc_finalize();
-    return rc == XCC_OK ? 0 : 2;
+           rank, unicc_backend_name(), bv, expected);
+    rc = unicc_finalize();
+    return rc == UNICC_OK ? 0 : 2;
 }

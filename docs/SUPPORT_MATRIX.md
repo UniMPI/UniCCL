@@ -1,9 +1,9 @@
-# XCCL support and verification matrix
+# UniCCL support and verification matrix
 
 This document separates three different claims (the same discipline UniMPI
 uses):
 
-1. **a vtable slot exists** — a function-pointer field in `xcc_vtable_t`;
+1. **a vtable slot exists** — a function-pointer field in `unicc_vtable_t`;
 2. **a backend exports a symbol** that can populate that slot;
 3. **a test has exercised the operation** with real code paths.
 
@@ -14,11 +14,11 @@ it is making.
 
 ## M2 API inventory
 
-`include/xcc.h` is the source of truth for what compiles. XCCL claims only
+`include/unicc.h` is the source of truth for what compiles. UniCCL claims only
 the operations below; everything else is future work (allgather,
 reduce-scatter, send/recv, alltoall, …).
 
-Core (required; `xcc_vtable_validate_core` refuses a backend without them):
+Core (required; `unicc_vtable_validate_core` refuses a backend without them):
 
 | Operation | vtable slot | Optional? |
 |---|---|---|
@@ -27,8 +27,8 @@ Core (required; `xcc_vtable_validate_core` refuses a backend without them):
 | allreduce | `allreduce` | core |
 | broadcast | `broadcast` | core |
 
-Optional (missing symbol → `NULL` slot → `xcc_*()` returns
-`XCC_ERR_NOT_SUPPORTED`, `*_available()` returns 0):
+Optional (missing symbol → `NULL` slot → `unicc_*()` returns
+`UNICC_ERR_NOT_SUPPORTED`, `*_available()` returns 0):
 
 | Operation | vtable slot |
 |---|---|
@@ -85,7 +85,7 @@ is bound and fake-tested but the real-backend integration run did not call it.
   → `*GetVersion` reported **2.28.7** (int 22807).
 - **Run**: `tests/run_integration.sh` equivalent, `world=2` (one rank per GPU);
   each rank sent its own vector, device memory via the zero-header
-  `xcc_devmem` adapter, uid published by rank 0 / consumed by rank 1.
+  `unicc_devmem` adapter, uid published by rank 0 / consumed by rank 1.
 - **Result**: both ranks `PASS (backend=nccl version=22807 sum=3)` — the SUM
   allreduce returned the analytic `1+2=3` on both GPUs. Rows above flipped to
   "Passed (real)" accordingly.
@@ -115,12 +115,12 @@ is bound and fake-tested but the real-backend integration run did not call it.
   `/opt/dtk-23.10.1/lib`).
 - **Result**: `world=2`, one rank per DCU, device memory via the zero-header
   adapter (HIP path). Both ranks `PASS (backend=nccl version=21304 sum=3)`.
-  XCCL identified the library as **NCCL** (`ncclGetVersion` present, no
+  UniCCL identified the library as **NCCL** (`ncclGetVersion` present, no
   `rccl*`) and bound the `nccl*` compat symbols — which is exactly what the
   design anticipated for a library that only exports the `nccl*` family. **No
   interface change was needed.**
 - **Design implication**: if the plan wants a distinct "Hygon DCU" identity
-  (better `xcc_backend_name()` and a future Hygon-native backend), the
+  (better `unicc_backend_name()` and a future Hygon-native backend), the
   identifer needs an additional Hygon-specific probe. Today it deliberately
   looks like NCCL because the library's only surface is the `nccl*` compat
   layer.
@@ -171,13 +171,13 @@ prefix — future work per BACKENDS.md.
   (NCCL) and dcu (Hygon `nccl*`-compat) runs exercised the allreduce path;
   these slots are fake-tested only.
 - Version gating beyond the `*GetVersion` value (runtime-only in M2).
-- `xcc_get_last_error` string passthrough (raw backend code only).
+- `unicc_get_last_error` string passthrough (raw backend code only).
 
 ## How to record a real-backend result
 
-1. Build with `-DXCCL_BUILD_TESTS_INTEGRATION=ON` on the GPU host.
-2. `tests/run_integration.sh nccl <world>` / `rccl <world>` (env: `XCCL_BACKEND`
-   or `XCCL_LIBRARY=<exact libnccl.so.2>`; `LD_LIBRARY_PATH` only if the device
+1. Build with `-DUNICC_BUILD_TESTS_INTEGRATION=ON` on the GPU host.
+2. `tests/run_integration.sh nccl <world>` / `rccl <world>` (env: `UNICC_BACKEND`
+   or `UNICC_LIBRARY=<exact libnccl.so.2>`; `LD_LIBRARY_PATH` only if the device
    runtime (`libcudart.so`) is off the default search path).
 3. `test_integration` binds one rank per GPU and reports `PASS (backend=… )`
    with the expected analytic sum.

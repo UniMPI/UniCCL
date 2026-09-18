@@ -9,7 +9,7 @@
 #   ./run_integration.sh [nccl|rccl] [world_size] [path-to-test_integration]
 #
 # The backend is selected through the environment exactly like production:
-# setting XCCL_BACKEND here is equivalent to exporting it as usual.
+# setting UNICC_BACKEND here is equivalent to exporting it as usual.
 set -euo pipefail
 
 BACKEND="${1:-nccl}"
@@ -24,13 +24,13 @@ fi
 UID_FILE="$(mktemp)"
 trap 'rm -f "$UID_FILE"' EXIT
 
-echo "== XCCL integration: backend=$BACKEND world_size=$WORLD =="
+echo "== UniCCL integration: backend=$BACKEND world_size=$WORLD =="
 pids=()
 for ((r = 0; r < WORLD; r++)); do
-    XCCL_BACKEND="$BACKEND" \
-    XCCL_TEST_WORLD_SIZE="$WORLD" \
-    XCCL_TEST_WORLD_RANK="$r" \
-    XCCL_TEST_UID_FILE="$UID_FILE" \
+    UNICC_BACKEND="$BACKEND" \
+    UNICC_TEST_WORLD_SIZE="$WORLD" \
+    UNICC_TEST_WORLD_RANK="$r" \
+    UNICC_TEST_UID_FILE="$UID_FILE" \
         "$BIN" &
     pids+=("$!")
 done

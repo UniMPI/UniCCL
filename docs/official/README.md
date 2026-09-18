@@ -1,4 +1,4 @@
-# Official source records (XCCL)
+# Official source records (UniCCL)
 
 > Networked evidence pinned to this repo so the design facts in `BACKENDS.md`
 > and `SUPPORT_MATRIX.md` stay traceable to their primary sources. Each record
@@ -11,7 +11,7 @@
 |---|---|---|
 | `amdc-rccl-official.md` | ROCm RCCL 2.30.4 documentation (rocm.docs.amd.com) | RCCL's public API surface is `nccl*`-named (functions, types, macros, `nccl.h`); RCCL version tracks the NCCL numbering; repo retired into `ROCm/rocm-systems/projects/rccl` |
 | `amdc-rccl-source-evidence.md` | GitHub code search over `ROCm/rocm-systems` | `rccl*`-prefixed public symbols are absent; `rccl*` survives only as internal implementation names (`rcclAllReduceShouldTakeDdaPath`, `RcclTunableColls`, `rccl_wrap.cc`) |
-| `ccL-ecosystem-survey-2026-09-17.md` | Vendor docs + official apt repos + GitHub source + PyTorch source | Cross-vendor CCL landscape: only NVIDIA/AMD/Hygon are `nccl*` at symbol level; Intel (oneCCL `oneccl*` / PyTorch `XCCL`), Cambricon `cncl*`, Ascend `hccl*`, Moore Threads `mccl*`, MetaX `mccl*`+(`mxccl_plugin` claims NCCL-21605 compat), Enflame `eccl*` keep own prefixes; XCCL-strategy implication + 4 verification-list items |
+| `ccL-ecosystem-survey-2026-09-17.md` | Vendor docs + official apt repos + GitHub source + PyTorch source | Cross-vendor CCL landscape: only NVIDIA/AMD/Hygon are `nccl*` at symbol level; Intel (oneCCL `oneccl*` / PyTorch `XCCL`), Cambricon `cncl*`, Ascend `hccl*`, Moore Threads `mccl*`, MetaX `mccl*`+(`mxccl_plugin` claims NCCL-21605 compat), Enflame `eccl*` keep own prefixes; UniCCL-strategy implication + 4 verification-list items + record of the XCCL→UniCCL rename (avoids PyTorch's Intel XCCL backend name) |
 
 ## Why these records exist
 
