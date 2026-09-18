@@ -57,6 +57,8 @@ install(TARGETS unicc
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES docs/API.md docs/BACKENDS.md docs/SUPPORT_MATRIX.md
         DESTINATION ${CMAKE_INSTALL_DOCDIR}/unicc)
+install(FILES LICENSE
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/licenses/unicc)
 
 # --- examples ---------------------------------------------------------------
 if(UNICC_BUILD_EXAMPLES)

@@ -138,3 +138,12 @@ docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
   multi-backend identify, `oneccl` + `eccl` bindings + fixtures ✅ (v0.2.0)
 - **P2 (backend matrix)** CNCL / HCCL / dual MCCL adapters + real-host
   verification list (pending)
+
+## License
+
+MIT — see [LICENSE](LICENSE). Copyright (c) 2026 UniMPI project.
+
+UniCCL is the middleware layer of the UniMPI/UniCCL/UniMemCom unified
+communication stack; the MIT grant covers UniCCL itself and uses the same
+declaration and copyright holder as UniMPI so the two repos stay traceable
+to each other.
