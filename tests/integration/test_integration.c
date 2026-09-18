@@ -47,10 +47,12 @@ int main(void) {
     int bv = 0;
     unicc_backend_version(&bv);
 
-    /* Bootstrap the unique id: rank 0 publishes, others poll for it. */
-    unicc_unique_id_t uid;
+    /* Bootstrap the unique id: rank 0 publishes (id.data + id.len), others
+     * poll and consume it. The id carries its length so any of the supported
+     * id sizes (128B NCCL .. 4KiB oneCCL/HCCL) round-trips unchanged. */
+    unicc_comm_id_t id;
     if (rank == 0) {
-        rc = unicc_get_unique_id(&uid);
+        rc = unicc_get_unique_id(&id);
         if (rc != UNICC_OK) {
             fprintf(stderr, "unicc_get_unique_id failed: %s\n", unicc_error_string(rc));
             return 2;
@@ -61,8 +63,8 @@ int main(void) {
                 return 2;
             }
             FILE *f = fopen(uid_file, "w");
-            if (!f || fwrite(uid.data, 1, UNICC_UNIQUE_ID_BYTES, f) != UNICC_UNIQUE_ID_BYTES) {
-                fprintf(stderr, "failed to publish uid\n");
+            if (!f || fwrite(id.data, 1, id.len, f) != id.len) {
+                fprintf(stderr, "failed to publish id\n");
                 return 2;
             }
             fclose(f);
@@ -73,8 +75,13 @@ int main(void) {
             f = fopen(uid_file, "r");
             if (!f) usleep(10000);
         }
-        if (!f || fread(uid.data, 1, UNICC_UNIQUE_ID_BYTES, f) != UNICC_UNIQUE_ID_BYTES) {
-            fprintf(stderr, "failed to read published uid\n");
+        if (!f) {
+            fprintf(stderr, "failed to open published id file\n");
+            return 2;
+        }
+        id.len = fread(id.data, 1, UNICC_COMM_ID_MAX, f);
+        if (id.len == 0 || id.len > UNICC_COMM_ID_MAX) {
+            fprintf(stderr, "failed to read published id\n");
             return 2;
         }
         fclose(f);
@@ -106,7 +113,7 @@ int main(void) {
     }
 
     unicc_comm_t comm = NULL;
-    rc = unicc_comm_init_rank(&comm, world, uid, rank);
+    rc = unicc_comm_init_rank(&comm, world, &id, rank);
     if (rc != UNICC_OK) {
         fprintf(stderr, "unicc_comm_init_rank failed: %s\n", unicc_error_string(rc));
         return 2;

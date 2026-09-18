@@ -27,10 +27,14 @@ int main(int argc, char **argv) {
     const char *fake_nccl = NULL;
     const char *fake_rccl = NULL;
     const char *fake_nccl_missing = NULL;
+    const char *fake_oneccl = NULL;
+    const char *fake_eccl = NULL;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--fake-nccl") == 0 && i + 1 < argc) { fake_nccl = argv[++i]; }
         else if (strcmp(argv[i], "--fake-rccl") == 0 && i + 1 < argc) { fake_rccl = argv[++i]; }
         else if (strcmp(argv[i], "--fake-nccl-missing") == 0 && i + 1 < argc) { fake_nccl_missing = argv[++i]; }
+        else if (strcmp(argv[i], "--fake-oneccl") == 0 && i + 1 < argc) { fake_oneccl = argv[++i]; }
+        else if (strcmp(argv[i], "--fake-eccl") == 0 && i + 1 < argc) { fake_eccl = argv[++i]; }
     }
 
     /* Default detection -> NVIDIA NCCL. */
@@ -88,10 +92,32 @@ int main(int argc, char **argv) {
         unicc_loader_unload(handle);
     }
 
+    /* oneCCL v2-shaped fake -> ONECCL (its oneccl* prefixes are specific enough
+     * that the generic nccl* probe must NOT claim it). */
+    if (fake_oneccl) {
+        CHECK(unicc_loader_load(fake_oneccl, &handle) == UNICC_OK);
+        CHECK(unicc_platform_dlsym(handle, "onecclGetVersion") != NULL);
+        CHECK(unicc_platform_dlsym(handle, "ncclGetVersion") == NULL); /* no nccl* family */
+        CHECK(unicc_loader_identify_backend(handle) == UNICC_BACKEND_ONECCL);
+        unicc_loader_unload(handle);
+    }
+
+    /* ECCL-shaped fake -> ECCL. */
+    if (fake_eccl) {
+        CHECK(unicc_loader_load(fake_eccl, &handle) == UNICC_OK);
+        CHECK(unicc_platform_dlsym(handle, "ecclGetVersion") != NULL);
+        CHECK(unicc_loader_identify_backend(handle) == UNICC_BACKEND_ECCL);
+        unicc_loader_unload(handle);
+    }
+
     /* Backend table sanity. */
     CHECK(unicc_backends[UNICC_BACKEND_NCCL - 1].type == UNICC_BACKEND_NCCL);
     CHECK(strcmp(unicc_backends[0].name, "nccl") == 0);
     CHECK(strcmp(unicc_backends[1].name, "rccl") == 0);
+    CHECK(strcmp(unicc_backends[2].name, "oneccl") == 0);
+    CHECK(strcmp(unicc_backends[3].name, "eccl") == 0);
+    CHECK(strcmp(unicc_backends[2].probe_symbol, "onecclGetVersion") == 0);
+    CHECK(strcmp(unicc_backends[3].probe_symbol, "ecclGetVersion") == 0);
     CHECK(unicc_print_backend_info() == UNICC_OK);
 
     if (g_failures == 0) {

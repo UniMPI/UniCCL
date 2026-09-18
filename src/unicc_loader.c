@@ -15,11 +15,22 @@
  * NVIDIA NCCL ships a shared library whose dev name is libnccl.so and whose
  * runtime soname is libnccl.so.2 (older releases used .1); prefer the dev
  * name and fall back to the soname.
- * AMD RCCL ships librccl.so (soname librccl.so.1).
- * A future domestic-GPU collective library is a one-line addition here. */
+ * AMD RCCL ships librccl.so (soname librccl.so.1). Modern RCCL's public API is
+ * nccl*-named, so on a real RCCL the loader resolves it via the nccl binding;
+ * the rccl entry stays as the defensive rccl*-family path.
+ * Intel oneCCL v2 (the NCCL-aligned C API, default branch since 2022.1) ships
+ * libccl.so.2; the classic C++-API line used libccl.so.1. Symbol prefix
+ * oneccl*. (Evidence: docs/official/ccL-ecosystem-survey-2026-09-17.md)
+ * Enflame ECCL ships libeccl.so (TopsRider suite); soname inferred from
+ * torch-gcu usage, not yet confirmed by nm -D on a real host.
+ * Each entry's probe_symbol is how unicc_loader_identify_backend recognizes a
+ * loaded library; keep the identifying probes vendor-specific (vendor docs say
+ * the libs export their own prefixes - see the survey record). */
 const unicc_backend_info_t unicc_backends[UNICC_MAX_BACKENDS] = {
-    {UNICC_BACKEND_NCCL, "nccl", "libnccl.so", "libnccl.so.2", 2},
-    {UNICC_BACKEND_RCCL, "rccl", "librccl.so", "librccl.so.1", 3}
+    {UNICC_BACKEND_NCCL,   "nccl",   "libnccl.so", "libnccl.so.2", "ncclGetVersion",    2},
+    {UNICC_BACKEND_RCCL,   "rccl",   "librccl.so", "librccl.so.1", "rcclGetVersion",    3},
+    {UNICC_BACKEND_ONECCL, "oneccl", "libccl.so.2", "libccl.so",   "onecclGetVersion",  4},
+    {UNICC_BACKEND_ECCL,   "eccl",   "libeccl.so", NULL,           "ecclGetVersion",    5}
 };
 
 /* Check whether a backend type is sensible on this platform. */
@@ -147,19 +158,28 @@ unicc_backend_type_t unicc_loader_identify_backend(unicc_lib_handle_t handle) {
 
     fprintf(stderr, "[UniCCL] Identifying backend type...\n");
 
-    /* Defensive dual-family rule: if a library exports rccl*, a librccl that
-     * also carries ncclGetVersion must never be misidentified as NVIDIA NCCL,
-     * so the rccl* probe stays first. NOTE (docs/official/): modern AMD RCCL
-     * exposes no public rccl* symbols, so on real RCCL/DCU this branch does
-     * not fire and the library resolves via ncclGetVersion below as NCCL. */
-    if (unicc_platform_dlsym(handle, "rcclGetVersion") != NULL) {
-        fprintf(stderr, "[UniCCL] Detected RCCL backend\n");
-        return UNICC_BACKEND_RCCL;
-    }
+    /* Probe order matters: each library exports its own prefix. The specific
+     * families (rccl / oneccl / eccl prefixes) are probed BEFORE the generic
+     * nccl probe so a library that also happens to export ncclGetVersion is
+     * never misidentified as NVIDIA NCCL. Defensive note (docs/official/):
+     * modern AMD RCCL exposes no public rccl symbols, so on real RCCL/DCU the
+     * rccl branch does not fire and the library resolves as NCCL below. */
+    static const struct {
+        unicc_backend_type_t type;
+        const char *sym;
+    } probe_order[] = {
+        {UNICC_BACKEND_RCCL,   "rcclGetVersion"},
+        {UNICC_BACKEND_ONECCL, "onecclGetVersion"},
+        {UNICC_BACKEND_ECCL,   "ecclGetVersion"},
+        {UNICC_BACKEND_NCCL,   "ncclGetVersion"}
+    };
 
-    if (unicc_platform_dlsym(handle, "ncclGetVersion") != NULL) {
-        fprintf(stderr, "[UniCCL] Detected NCCL backend\n");
-        return UNICC_BACKEND_NCCL;
+    for (size_t i = 0; i < sizeof(probe_order) / sizeof(probe_order[0]); i++) {
+        if (unicc_platform_dlsym(handle, probe_order[i].sym) != NULL) {
+            fprintf(stderr, "[UniCCL] Detected %s backend\n",
+                    backend_name_from_type(probe_order[i].type));
+            return probe_order[i].type;
+        }
     }
 
     fprintf(stderr, "[UniCCL:WARN] Could not identify backend type\n");
@@ -170,7 +190,7 @@ int unicc_loader_check_platform_support(unicc_backend_type_t backend) {
     if (!backend_supported_on_platform(backend)) {
         fprintf(stderr, "[UniCCL:ERROR] Backend '%s' is not supported on this platform\n",
                 backend_name_from_type(backend));
-        fprintf(stderr, "  NCCL and RCCL are supported on Linux (NCCL also on macOS)\n");
+        fprintf(stderr, "  NCCL, RCCL, oneCCL and ECCL are supported on Linux\n");
         return UNICC_ERR_BACKEND_NOT_SUPPORTED;
     }
     return UNICC_OK;
@@ -196,20 +216,18 @@ void unicc_diagnose_backend(const char *lib_path) {
     }
 
     unicc_backend_type_t type = unicc_loader_identify_backend(handle);
-    fprintf(stderr, "Identified backend type: %s\n",
-            type == UNICC_BACKEND_NCCL ? "NCCL" :
-            type == UNICC_BACKEND_RCCL ? "RCCL" : "Unknown");
+    fprintf(stderr, "Identified backend type: %s\n", backend_name_from_type(type));
 
     fprintf(stderr, "\nChecking symbols:\n");
-    /* Both families are listed so the report is useful regardless of which
-     * backend's library is being diagnosed. */
+    /* Every registered family is listed so the report is useful regardless of
+     * which backend's library is being diagnosed. */
     const char *required_symbols[] = {
-        "ncclGetVersion", "rcclGetVersion",
-        "ncclCommInitRank", "rcclCommInitRank",
-        "ncclAllReduce", "rcclAllReduce",
-        "ncclBroadcast", "rcclBroadcast",
-        "ncclGroupStart", "rcclGroupStart",
-        "ncclGroupEnd", "rcclGroupEnd",
+        "ncclGetVersion", "rcclGetVersion", "onecclGetVersion", "ecclGetVersion",
+        "ncclCommInitRank", "rcclCommInitRank", "onecclCommInitRank", "ecclCommInitRank",
+        "ncclAllReduce", "rcclAllReduce", "onecclAllReduce", "ecclAllReduce",
+        "ncclBroadcast", "rcclBroadcast", "onecclBroadcast", "ecclBroadcast",
+        "ncclGroupStart", "rcclGroupStart", "onecclGroupStart", "ecclGroupStart",
+        "ncclGroupEnd", "rcclGroupEnd", "onecclGroupEnd", "ecclGroupEnd",
         NULL
     };
     for (int i = 0; required_symbols[i] != NULL; i++) {

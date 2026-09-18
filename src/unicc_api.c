@@ -7,6 +7,7 @@
 #include "unicc.h"
 #include "unicc_backends.h"
 #include "unicc_vtable.h"
+#include "unicc_dtmap.h"
 #include "unicc_platform.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,35 +32,17 @@ static unicc_result_t map_backend_result(int rc) {
     return UNICC_ERR_UNHANDLED_BACKEND;
 }
 
-/* Map UniCCL's datatype enum onto the backend's numeric datatype. NCCL and RCCL
- * use numerically identical enum values, so a single static mapping suffices;
- * if a future backend diverges, this table moves into per-backend files
- * (docs/BACKENDS.md "enum mapping"). */
+/* Map UniCCL's datatype/op enums onto the active backend's numeric values via
+ * the init-time per-backend tables (unicc_dtmap.h). The tables are filled once
+ * during unicc_vtable_init to the executing backend's numbering, so the hot
+ * path is a plain array index - no switch and no backend branch on every
+ * collective call (docs/BACKENDS.md "Enum mapping"). */
 static int map_datatype(unicc_datatype_t dt) {
-    switch (dt) {
-        case UNICC_I8:   return 0;   /* ncclInt8 */
-        case UNICC_U8:   return 2;   /* ncclUint8 */
-        case UNICC_I32:  return 3;   /* ncclInt32 */
-        case UNICC_U32:  return 4;   /* ncclUint32 */
-        case UNICC_I64:  return 5;   /* ncclInt64 */
-        case UNICC_U64:  return 6;   /* ncclUint64 */
-        case UNICC_F16:  return 9;   /* ncclHalf */
-        case UNICC_F32:  return 7;   /* ncclFloat */
-        case UNICC_F64:  return 8;   /* ncclDouble */
-        case UNICC_BF16: return 10;  /* ncclBfloat16 */
-    }
-    return -1;
+    return unicc_dtmap_lookup_dt((int)dt);
 }
 
-/* Map UniCCL's reduce-op enum onto the backend's numeric op. */
 static int map_reduce_op(unicc_reduce_op_t op) {
-    switch (op) {
-        case UNICC_SUM:  return 0;   /* ncclSum */
-        case UNICC_PROD: return 1;   /* ncclProd */
-        case UNICC_MAX:  return 2;   /* ncclMax */
-        case UNICC_MIN:  return 3;   /* ncclMin */
-    }
-    return -1;
+    return unicc_dtmap_lookup_op((int)op);
 }
 
 static const char* backend_name_from_type(unicc_backend_type_t type) {
@@ -173,30 +156,30 @@ int unicc_diagnose(void) {
     return UNICC_OK;
 }
 
-int unicc_get_unique_id(unicc_unique_id_t *uid) {
+int unicc_get_unique_id(unicc_comm_id_t *id) {
     if (g_state != UNICC_STATE_INIT) {
         return UNICC_ERR_NOT_INITIALIZED;
     }
     if (!unicc.get_unique_id) {
         return UNICC_ERR_NOT_SUPPORTED;
     }
-    if (!uid) {
+    if (!id) {
         return UNICC_ERR_INVALID_ARGUMENT;
     }
-    return map_backend_result(unicc.get_unique_id(uid));
+    return map_backend_result(unicc.get_unique_id(id));
 }
 
-int unicc_comm_init_rank(unicc_comm_t *comm, int nranks, unicc_unique_id_t uid, int rank) {
+int unicc_comm_init_rank(unicc_comm_t *comm, int nranks, const unicc_comm_id_t *id, int rank) {
     if (g_state != UNICC_STATE_INIT) {
         return UNICC_ERR_NOT_INITIALIZED;
     }
     if (!unicc.comm_init_rank) {
         return UNICC_ERR_NOT_SUPPORTED;
     }
-    if (!comm || nranks < 1 || rank < 0 || rank >= nranks) {
+    if (!comm || nranks < 1 || rank < 0 || rank >= nranks || !id || id->len == 0) {
         return UNICC_ERR_INVALID_ARGUMENT;
     }
-    return map_backend_result(unicc.comm_init_rank(comm, nranks, uid, rank));
+    return map_backend_result(unicc.comm_init_rank(comm, nranks, id, rank));
 }
 
 int unicc_comm_destroy(unicc_comm_t comm) {

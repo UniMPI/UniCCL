@@ -97,6 +97,10 @@ on real hardware by `nm -D`).
 
 ## Open items (verification list)
 
+*Status 2026-09-18:* UniCCL P1 landed the `oneccl`/`eccl` bindings (fake
+fixtures only, see SUPPORT_MATRIX.md). Items 1–4 below and the new 5–6 are
+real-host `nm -D` confirmations.
+
 1. **AMD RCCL per-binary symbol face**: `nm -D librccl.so` on a real AMD host
    (settles whether any shipped RCCL still exports `rccl*`; fake-only today).
 2. **MetaX `mxccl_plugin`**: does it actually export `nccl*` symbols (as
@@ -106,6 +110,12 @@ on real hardware by `nm -D`).
    needs a real host `nm -D`.
 4. **Iluvatar / Biren**: no authoritative CCL evidence found; treat as
    unknown until a real software stack is examined.
+5. **Intel oneCCL v2 `libccl.so.2`**: confirm the `oneccl*` exports and that
+   the `libccl_legacy` plugin is discoverable at run time (oneCCL v2 is a
+   plugin shell); the P1 binding assumes both.
+6. **Enflame ECCL**: `nm -D libeccl.so` for soname + the encoded
+   `ECCL_UNIQUE_ID_BYTES` + datatype/reduce-op numeric values (P1 binds the
+   NCCL-family numbering on torch-gcu name evidence only).
 
 ## Naming hazard (recorded) — resolved by the rename
 

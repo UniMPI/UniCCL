@@ -20,9 +20,13 @@ static int g_failures = 0;
 int main(int argc, char **argv) {
     const char *fake_nccl = NULL;
     const char *fake_nccl_missing = NULL;
+    const char *fake_oneccl = NULL;
+    const char *fake_eccl = NULL;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--fake-nccl") == 0 && i + 1 < argc) { fake_nccl = argv[++i]; }
         else if (strcmp(argv[i], "--fake-nccl-missing") == 0 && i + 1 < argc) { fake_nccl_missing = argv[++i]; }
+        else if (strcmp(argv[i], "--fake-oneccl") == 0 && i + 1 < argc) { fake_oneccl = argv[++i]; }
+        else if (strcmp(argv[i], "--fake-eccl") == 0 && i + 1 < argc) { fake_eccl = argv[++i]; }
     }
 
     /* The global table must start fully zero-initialized. */
@@ -70,6 +74,37 @@ int main(int argc, char **argv) {
         CHECK(unicc.allreduce != NULL);
         CHECK(unicc.group_start != NULL);
         CHECK(unicc.group_end == NULL);   /* ncclGroupEnd omitted by the fixture */
+        unicc_vtable_cleanup();
+        unicc_loader_unload(h);
+    }
+
+    /* oneCCL-shaped fake: binds through the oneccl* family (original oneccl*
+     * probe wins over any fallback), all slots populated via its adapters. */
+    if (fake_oneccl) {
+        unicc_lib_handle_t h = NULL;
+        CHECK(unicc_loader_load(fake_oneccl, &h) == UNICC_OK);
+        CHECK(unicc_vtable_init(h) == UNICC_OK);
+        CHECK(unicc_get_backend_type() == UNICC_BACKEND_ONECCL);
+        CHECK(unicc.get_version != NULL);
+        CHECK(unicc.comm_init_rank != NULL);
+        CHECK(unicc.allreduce != NULL);
+        CHECK(unicc.broadcast != NULL);
+        CHECK(unicc.get_unique_id != NULL);
+        CHECK(unicc.group_start != NULL);
+        unicc_vtable_cleanup();
+        unicc_loader_unload(h);
+    }
+
+    /* ECCL-shaped fake: binds eccl*, and the absent ecclCommUserRank leaves
+     * comm_user_rank NULL (degrade pattern) while core stays populated. */
+    if (fake_eccl) {
+        unicc_lib_handle_t h = NULL;
+        CHECK(unicc_loader_load(fake_eccl, &h) == UNICC_OK);
+        CHECK(unicc_vtable_init(h) == UNICC_OK);
+        CHECK(unicc_get_backend_type() == UNICC_BACKEND_ECCL);
+        CHECK(unicc.allreduce != NULL);
+        CHECK(unicc.broadcast != NULL);
+        CHECK(unicc.comm_user_rank == NULL);
         unicc_vtable_cleanup();
         unicc_loader_unload(h);
     }

@@ -20,34 +20,45 @@ endfunction()
 add_fake_unicc_fixture(fake_nccl_identity                fake_backends/fake_nccl_identity.c)
 add_fake_unicc_fixture(fake_nccl_missing_group_end       fake_backends/fake_nccl_identity.c UNICC_FAKE_OMIT_GROUP_END)
 add_fake_unicc_fixture(fake_rccl_identity                fake_backends/fake_rccl_identity.c)
+add_fake_unicc_fixture(fake_oneccl_identity              fake_backends/fake_oneccl_identity.c)
+add_fake_unicc_fixture(fake_eccl_identity                fake_backends/fake_eccl_identity.c)
 
 # --- test_loader ------------------------------------------------------------
 add_executable(test_loader test_loader.c)
 target_link_libraries(test_loader PRIVATE unicc::unicc)
-add_dependencies(test_loader fake_nccl_identity fake_rccl_identity fake_nccl_missing_group_end)
+add_dependencies(test_loader fake_nccl_identity fake_rccl_identity fake_nccl_missing_group_end
+    fake_oneccl_identity fake_eccl_identity)
 add_test(NAME test_loader COMMAND test_loader
     --fake-nccl $<TARGET_FILE:fake_nccl_identity>
     --fake-rccl $<TARGET_FILE:fake_rccl_identity>
-    --fake-nccl-missing $<TARGET_FILE:fake_nccl_missing_group_end>)
+    --fake-nccl-missing $<TARGET_FILE:fake_nccl_missing_group_end>
+    --fake-oneccl $<TARGET_FILE:fake_oneccl_identity>
+    --fake-eccl $<TARGET_FILE:fake_eccl_identity>)
 set_tests_properties(test_loader PROPERTIES LABELS "unit;fake;loader")
 
 # --- test_vtable ------------------------------------------------------------
 add_executable(test_vtable test_vtable.c)
 target_link_libraries(test_vtable PRIVATE unicc::unicc)
-add_dependencies(test_vtable fake_nccl_identity fake_nccl_missing_group_end)
+add_dependencies(test_vtable fake_nccl_identity fake_nccl_missing_group_end
+    fake_oneccl_identity fake_eccl_identity)
 add_test(NAME test_vtable COMMAND test_vtable
     --fake-nccl $<TARGET_FILE:fake_nccl_identity>
-    --fake-nccl-missing $<TARGET_FILE:fake_nccl_missing_group_end>)
+    --fake-nccl-missing $<TARGET_FILE:fake_nccl_missing_group_end>
+    --fake-oneccl $<TARGET_FILE:fake_oneccl_identity>
+    --fake-eccl $<TARGET_FILE:fake_eccl_identity>)
 set_tests_properties(test_vtable PROPERTIES LABELS "unit;fake;vtable")
 
 # --- test_api ---------------------------------------------------------------
 add_executable(test_api test_api.c)
 target_link_libraries(test_api PRIVATE unicc::unicc)
-add_dependencies(test_api fake_nccl_identity fake_rccl_identity fake_nccl_missing_group_end)
+add_dependencies(test_api fake_nccl_identity fake_rccl_identity fake_nccl_missing_group_end
+    fake_oneccl_identity fake_eccl_identity)
 add_test(NAME test_api COMMAND test_api
     --fake-nccl $<TARGET_FILE:fake_nccl_identity>
     --fake-rccl $<TARGET_FILE:fake_rccl_identity>
-    --fake-nccl-missing $<TARGET_FILE:fake_nccl_missing_group_end>)
+    --fake-nccl-missing $<TARGET_FILE:fake_nccl_missing_group_end>
+    --fake-oneccl $<TARGET_FILE:fake_oneccl_identity>
+    --fake-eccl $<TARGET_FILE:fake_eccl_identity>)
 set_tests_properties(test_api PROPERTIES LABELS "unit;fake;api")
 
 # --- integration (real backends; opt-in, driven by run_integration.sh) ------

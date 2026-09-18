@@ -28,10 +28,10 @@ int main(void) {
            ver, unicc_backend_name(), bv, unicc_get_library_path());
 
     if (unicc_comm_available()) {
-        unicc_unique_id_t uid;
-        if (unicc_get_unique_id(&uid) == UNICC_OK) {
+        unicc_comm_id_t id;
+        if (unicc_get_unique_id(&id) == UNICC_OK) {
             unicc_comm_t comm = NULL;
-            if (unicc_comm_init_rank(&comm, 1, uid, 0) == UNICC_OK) {
+            if (unicc_comm_init_rank(&comm, 1, &id, 0) == UNICC_OK) {
                 if (unicc_allreduce_available()) {
                     float in[4] = {1.0f, 2.0f, 3.0f, 4.0f};
                     float out[4] = {0.0f, 0.0f, 0.0f, 0.0f};

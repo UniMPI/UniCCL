@@ -5,13 +5,20 @@ identification trap that matters (RCCL's `nccl*` compatibility symbols).
 
 ## Backend table (`src/unicc_loader.c`)
 
-| name | type | `lib_name` (preferred) | `lib_name_alt` (fallback) |
-|---|---|---|---|
-| `nccl` | NCCL | `libnccl.so` | `libnccl.so.2` (older releases shipped `.1`) |
-| `rccl` | RCCL | `librccl.so` | `librccl.so.1` |
+| name | type | prefix | `lib_name` (preferred) | `lib_name_alt` (fallback) | probe symbol |
+|---|---|---|---|---|---|
+| `nccl` | NVIDIA NCCL | `nccl*` | `libnccl.so` | `libnccl.so.2` (older releases shipped `.1`) | `ncclGetVersion` |
+| `rccl` | AMD RCCL (defensive) | `rccl*` | `librccl.so` | `librccl.so.1` | `rcclGetVersion` |
+| `oneccl` | Intel oneCCL v2 | `oneccl*` | `libccl.so.2` | `libccl.so` | `onecclGetVersion` |
+| `eccl` | Enflame ECCL | `eccl*` | `libeccl.so` | — | `ecclGetVersion` |
 
 Adding a future domestic-GPU collective library is a one-entry addition to
-`unicc_backends[]` plus an identify rule and a binding file.
+`unicc_backends[]` (plus its probe symbol) and a binding file. Vendor prefixes
+and library names come from the evidence records in `docs/official/`
+(`ccL-ecosystem-survey-2026-09-17.md`): every vendor keeps its own prefix.
+Intel oneCCL v2's C API (`libccl.so.2`, not the classic C++ `libccl.so.1`) and
+Enflame ECCL are NCCL-shaped; the domestic-card libraries land in a later
+milestone.
 
 ## Selection priority
 
@@ -19,8 +26,8 @@ Deterministic, modeled on UniMPI:
 
 1. `UNICC_LIBRARY` — an exact library path or loader-resolvable name.
    *(Use this in CI, in tests and whenever several GPU stacks are installed.)*
-2. `UNICC_BACKEND` — `nccl` or `rccl`. An unrecognized value is treated as a
-   library path.
+2. `UNICC_BACKEND` — `nccl`, `rccl`, `oneccl` or `eccl`. An unrecognized value
+   is treated as a library path.
 3. platform default — `libnccl.so` (NVIDIA).
 
 M2 keeps the default simple (NCCL). Detecting CUDA vs ROCm presence to pick a
@@ -77,8 +84,25 @@ native symbols":
 
 *Status note:* the code keeps the `rccl*` path for backward compatibility
 until a real AMD host runs `nm -D librccl.so` and settles the per-binary
-question (see `SUPPORT_MATRIX.md`). The identifier logic itself is unchanged
-in M2; what changed is the documented model of what "RCCL" exports.
+question (see `SUPPORT_MATRIX.md`). What changed in the documented model of
+what "RCCL" exports is covered above.
+
+## Identification order (multi-backend)
+
+`unicc_loader_identify_backend` probes each family's specific symbol in a
+fixed order — the vendor-specific families first, the generic `nccl` probe
+last, so a library that *also* happens to export `ncclGetVersion` is never
+misidentified:
+
+1. `rcclGetVersion` → RCCL (defensive)
+2. `onecclGetVersion` → oneCCL
+3. `ecclGetVersion` → ECCL
+4. `ncclGetVersion` → NCCL (also real RCCL / Hygon DCU, whose public API is
+   `nccl*`-named)
+
+P2 adds the domestic-card probes (Cambricon `cnclGetLibVersion`, Ascend
+`Hccl*`, dual MCCL `mccl*` — note the two MCCL libraries share the `mccl*`
+prefix and are told apart by a secondary probe / exact `UNICC_LIBRARY` path).
 
 ## Binding: dlsym per symbol, NULL on missing
 
@@ -108,49 +132,80 @@ for every M2 slot, the exact symbol each backend family is expected to export.
 "Core" slots are required for `unicc_init`; "optional" slots degrade to a NULL
 slot and `unicc_*_available() == 0` when absent.
 
-| vtable slot | role | nccl symbol (NCCL) | rccl symbol (RCCL) |
-|---|---|---|---|
-| `get_version` | core | `ncclGetVersion` | `rcclGetVersion` |
-| `comm_init_rank` | core | `ncclCommInitRank` | `rcclCommInitRank` |
-| `allreduce` | core | `ncclAllReduce` | `rcclAllReduce` |
-| `broadcast` | core | `ncclBroadcast` | `rcclBroadcast` |
-| `get_unique_id` | optional | `ncclGetUniqueId` | `rcclGetUniqueId` |
-| `comm_destroy` | optional | `ncclCommDestroy` | `rcclCommDestroy` |
-| `comm_count` | optional | `ncclCommCount` | `rcclCommCount` |
-| `comm_user_rank` | optional | `ncclCommUserRank` | `rcclCommUserRank` |
-| `group_start` | optional | `ncclGroupStart` | `rcclGroupStart` |
-| `group_end` | optional | `ncclGroupEnd` | `rcclGroupEnd` |
+| vtable slot | role | nccl (NCCL) | rccl (RCCL, defensive) | oneccl (Intel) | eccl (Enflame) |
+|---|---|---|---|---|---|
+| `get_version` | core | `ncclGetVersion` | `rcclGetVersion` | `onecclGetVersion` | `ecclGetVersion` |
+| `comm_init_rank` | core | `ncclCommInitRank` | `rcclCommInitRank` | `onecclCommInitRank` | `ecclCommInitRank` |
+| `allreduce` | core | `ncclAllReduce` | `rcclAllReduce` | `onecclAllReduce` | `ecclAllReduce` |
+| `broadcast` | core | `ncclBroadcast` | `rcclBroadcast` | `onecclBroadcast`¹ | `ecclBroadcast`¹ |
+| `get_unique_id` | optional | `ncclGetUniqueId` | `rcclGetUniqueId` | `onecclGetUniqueId` | `ecclGetUniqueId` |
+| `comm_destroy` | optional | `ncclCommDestroy` | `rcclCommDestroy` | `onecclCommDestroy` | `ecclCommDestroy` |
+| `comm_count` | optional | `ncclCommCount` | `rcclCommCount` | `onecclCommCount` | `ecclCommCount` |
+| `comm_user_rank` | optional | `ncclCommUserRank` | `rcclCommUserRank` | `onecclCommUserRank` | — (not exported) |
+| `group_start` | optional | `ncclGroupStart` | `rcclGroupStart` | `onecclGroupStart` | `ecclGroupStart` |
+| `group_end` | optional | `ncclGroupEnd` | `rcclGroupEnd` | `onecclGroupEnd` | `ecclGroupEnd` |
 
-The RCCL column is a *defensive* row, not a description of modern AMD RCCL:
-real RCCL's public API is `nccl*`-named (see the "Identification" section and
-`docs/official/`), so on a current RCCL the `nccl` column is the one actually
-bound. The `rccl*` column stays as the family UniCCL would bind *if* a loaded
-library exports it (historical / third-party shape), reached only after a
-`rcclGetVersion`-style probe. Coverage against live NCCL/RCCL binaries is
-tracked in SUPPORT_MATRIX.md; until executed on a real AMD host the `rccl*`
-rows above are the documented fallback, not a loaded-library measurement.
+¹ oneCCL v2 / ECCL broadcast are double-buffered (separate send/recv); the
+in-place vtable slot passes the same buffer for both — no extra copy.
 
-## Enum mapping
+Notes on the table:
+- The `rccl` column is a *defensive* row, not a description of modern AMD
+  RCCL: real RCCL's public API is `nccl*`-named (see "Identification" and
+  `docs/official/`), so on a current RCCL the `nccl` column is the one bound.
+- oneCCL / ECCL entries come from the vendor sources in `docs/official/`
+  (oneCCL v2 `include/oneapi/ccl.h`; torch-gcu `eccl*` call sites). ECCL has
+  no `ecclCommUserRank` in the ecosystem, so that slot is intentionally NULL.
+- Coverage against live binaries is tracked in SUPPORT_MATRIX.md; the
+  oneccl/eccl rows are fake-fixture-backed today, real-host verification is
+  pending (`nm -D libccl.so.2`, `nm -D libeccl.so`).
 
-NCCL and RCCL use identical numeric values for datatypes and ops, so UniCCL maps
-its own enums onto them with a single table in `src/unicc_api.c`:
+## Enum mapping (per-backend, init-time)
 
-| XCC | nccl/rccl value | meaning |
+Vendor CCLs disagree on the numeric values of the datatype enum, so UniCCL does
+**not** hard-code one table. The mapping lives in `src/unicc_dtmap.c`
+(`include/unicc_dtmap.h`): two small arrays, indexed by `unicc_datatype_t` /
+`unicc_reduce_op_t`, filled once at `unicc_vtable_init` with the active
+backend's numbering. The collective hot path then does a plain array index —
+no switch, no per-call backend branch. This mirrors UniMPI's per-backend
+predefined-constant initialization (`init_mpich_error_codes`).
+
+The default (reset, NCCL-family) table — also used by RCCL, Hygon DCU and P1's
+oneCCL v2 / ECCL (numerically identical per vendor source):
+
+| UniCCL | value | meaning |
 |---|---|---|
 | `UNICC_I8` | 0 | int8 |
-| `UNICC_U8` | 2 | uint8 |
-| `UNICC_I32` | 3 | int32 |
-| `UNICC_U32` | 4 | uint32 |
-| `UNICC_I64` | 5 | int64 |
-| `UNICC_U64` | 6 | uint64 |
-| `UNICC_F16` | 9 | half |
+| `UNICC_U8` | 1 | uint8 |
+| `UNICC_I32` | 2 | int32 |
+| `UNICC_U32` | 3 | uint32 |
+| `UNICC_I64` | 4 | int64 |
+| `UNICC_U64` | 5 | uint64 |
+| `UNICC_F16` | 6 | half |
 | `UNICC_F32` | 7 | float32 |
 | `UNICC_F64` | 8 | float64 |
-| `UNICC_BF16` | 10 | bfloat16 |
+| `UNICC_BF16` | 9 | bfloat16 |
 | `UNICC_SUM` / `UNICC_PROD` / `UNICC_MAX` / `UNICC_MIN` | 0 / 1 / 2 / 3 | reduce ops |
 
-If a future backend diverges from these values, the table moves into
-per-backend files and the wrapper keeps swapping at runtime.
+(NCCL and oneCCL v2 list exactly these values; earlier versions of this
+document carried the older NCCL numbering F16=9/BF16=10, which does not match
+modern NCCL — corrected here.)
+
+Diverging backends overwrite their rows in the P2 milestone: Moore/MetaX MCCL
+use the RCCL-style numbering with `Uint32` inserted (Int8=0, Uint8=1, Int32=2,
+Uint32=3, Int64=4, Uint64=5, Float16=6, Float32=7, Float64=8, Bfloat16=9),
+Cambricon CNCL uses a hex coding (Int8=0x20, Float32=0x12, …), Ascend HCCL its
+own layout — all recorded from vendor source in `docs/official/`.
+
+## Bootstrap id: length-carrying (`unicc_comm_id_t`)
+
+Backends disagree on how large the bootstrap id is: NCCL family 128 bytes,
+Intel oneCCL v2 4096 bytes, CNCL cliqueId 136, HCCL rootInfo 4108. UniCCL
+therefore carries ids as `unicc_comm_id_t { size_t len; unsigned char
+data[UNICC_COMM_ID_MAX] }` (max 4112); `unicc_get_unique_id` produces it,
+applications transport `data` + `len` verbatim, `unicc_comm_init_rank` consumes
+it. The id slots are the cold path: only `get_unique_id` / `comm_init_rank`
+touch it, through small per-backend adapters (memcpy into the native-sized id),
+never the collectives.
 
 ## Error mapping
 
@@ -161,24 +216,27 @@ non-zero → `UNICC_ERR_UNHANDLED_BACKEND`, keeping the raw value for
 
 ## Platform support
 
-| Platform | nccl | rccl |
-|---|:---:|:---:|
-| Linux | yes | yes |
-| macOS | yes | no (ROCm) |
-| Windows | not yet (planned) | no |
+| Platform | nccl | rccl | oneccl | eccl |
+|---|:---:|:---:|:---:|:---:|
+| Linux | yes | yes | yes | yes |
+| macOS | yes | no (ROCm) | unverified | no |
+| Windows | not yet (planned) | no | no | no |
 
-## M2 simplifications (deliberate)
+## Deliberate simplifications
 
-- **Version gating is runtime-only**: `unicc_backend_version()` +
-  document-level checks. No compile-time gate machinery (NCCL's API surface is
-  small; UniMPI's MPI-version gating was judged unnecessary here).
-- **Default backend is a fixed name**, not a CUDA/ROCm scan.
+- **Default backend is a fixed name**, not a CUDA/ROCm/oneAPI scan.
 - **Vendor identity probe pending**: distinguishing NVIDIA NCCL from AMD RCCL
   from Hygon DCU (all `nccl*`-named today) needs a dependency/vendor probe,
   not the symbol prefix — recorded as future work; until then
-  `unicc_backend_name()` reports whatever the loader resolved (`nccl`).
-- **Error-string passthrough** (`ncclGetErrorString`) is pending; the raw
-  backend result is surfaced today.
+  `unicc_backend_name()` reports the resolved family name (e.g. `nccl` for any
+  of the three).
+- **Version gating is runtime-only**: `unicc_backend_version()` +
+  document-level checks. No compile-time gate machinery (the vendor API
+  surfaces are small; UniMPI's MPI-version gating was judged unnecessary).
+- **Error-string passthrough** is pending (per vendor); the raw backend result
+  is surfaced today.
+- **ECCL versioning**: oneCCL numbers its releases by year (2022.1); ECCL
+  numbers like NCCL — both read directly from the backend.
 
 ## Diagnosing on hosts with no NCCL/RCCL
 

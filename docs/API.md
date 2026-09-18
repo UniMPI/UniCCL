@@ -18,8 +18,9 @@ typedef enum { UNICC_I8, UNICC_U8, UNICC_I32, UNICC_U32, UNICC_I64,
 typedef enum { UNICC_SUM, UNICC_PROD, UNICC_MAX, UNICC_MIN } unicc_reduce_op_t;
 ```
 
-These are UniCCL's own enums; the mapping onto each backend's numeric values
-lives in `src/unicc_api.c` (documented in `BACKENDS.md`).
+These are UniCCL's own enums; the mapping onto the active backend's numeric
+values lives in `src/unicc_dtmap.c` (per-backend, fixed at init; see
+`BACKENDS.md` "Enum mapping").
 
 ## Lifecycle
 
@@ -36,10 +37,10 @@ platform default.
 
 | Function | Description |
 |---|---|
-| `const char* unicc_backend_name()` | `"nccl"`, `"rccl"`, or `"unknown"`. |
+| `const char* unicc_backend_name()` | `"nccl"`, `"rccl"`, `"oneccl"`, `"eccl"`, or `"unknown"`. |
 | `const char* unicc_get_library_path()` | Path of the loaded library (`""` if none). |
-| `int unicc_get_version(char* buf, size_t len)` | UniCCL wrapper version string (e.g. `"UniCCL 0.1.0-alpha"`). |
-| `int unicc_backend_version(int* version)` | Backend-reported version integer (nccl/rccl GetVersion). |
+| `int unicc_get_version(char* buf, size_t len)` | UniCCL wrapper version string (e.g. `"UniCCL 0.2.0-alpha"`). |
+| `int unicc_backend_version(int* version)` | Backend-reported version integer (per-backend `...GetVersion`). |
 | `int unicc_print_backend_info()` | Print the known-backend table to stderr. |
 | `int unicc_diagnose()` | Load + identity + per-symbol coverage of the selected library. |
 
@@ -50,16 +51,17 @@ prints which symbols are missing so the failure is obvious.
 
 | Function | Description |
 |---|---|
-| `unicc_get_unique_id(unicc_unique_id_t* uid)` | Obtain a fresh 128-byte communicator id (layout-identical to `ncclUniqueId`). |
-| `unicc_comm_init_rank(unicc_comm_t* comm, int nranks, unicc_unique_id_t uid, int rank)` | Create a communicator; the uid is passed **by value** (matches the native NCCL signature). `comm` is an opaque handle. |
+| `unicc_get_unique_id(unicc_comm_id_t* id)` | Obtain a fresh communicator id: `id->len` byte count + `id->data`. Size is backend-specific — 128 B for the NCCL family, 4096 B for Intel oneCCL, etc. (`UNICC_COMM_ID_MAX` in `unicc_version.h`). |
+| `unicc_comm_init_rank(unicc_comm_t* comm, int nranks, const unicc_comm_id_t* id, int rank)` | Create a communicator from the transferred id (pointer to the length-carrying id). `comm` is an opaque handle. |
 | `unicc_comm_destroy(unicc_comm_t comm)` | Destroy a communicator. |
 | `unicc_comm_count(unicc_comm_t comm, int* count)` | Number of ranks in the communicator. |
-| `unicc_comm_user_rank(unicc_comm_t comm, int* rank)` | This rank's id in the communicator. |
+| `unicc_comm_user_rank(unicc_comm_t comm, int* rank)` | This rank's id in the communicator (ECCL has no such symbol; returns `UNICC_ERR_NOT_SUPPORTED`). |
 | `unicc_comm_available()` | 1 if communicator bootstrap is usable with this backend. |
 
 Note: UniCCL does not create a "world"-style communicator for you — like NCCL,
-you call `unicc_get_unique_id` (once, e.g. on rank 0), transfer the uid to every
-participant, then each calls `unicc_comm_init_rank` with `nranks`/`rank`.
+you call `unicc_get_unique_id` (once, e.g. on rank 0), transfer `id->data` +
+`id->len` verbatim to every participant, then each calls `unicc_comm_init_rank`
+with `nranks`/`rank`.
 
 ## Collectives
 
@@ -94,8 +96,8 @@ int main(void) {
     if (unicc_init() != UNICC_OK) { unicc_diagnose(); return 1; }
     printf("backend=%s\n", unicc_backend_name());
 
-    unicc_unique_id_t uid;  unicc_get_unique_id(&uid);
-    unicc_comm_t comm;      unicc_comm_init_rank(&comm, 1, uid, 0);
+    unicc_comm_id_t id;     unicc_get_unique_id(&id);
+    unicc_comm_t comm;      unicc_comm_init_rank(&comm, 1, &id, 0);
 
     float in[4] = {1,2,3,4}, out[4];
     if (unicc_allreduce_available())

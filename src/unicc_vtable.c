@@ -7,6 +7,7 @@
  * backend binding. */
 #include "unicc_vtable.h"
 #include "unicc_backends.h"
+#include "unicc_dtmap.h"
 #include "unicc_platform.h"
 #include "unicc_errors.h"
 #include <stdlib.h>
@@ -22,6 +23,8 @@ static unicc_backend_type_t g_backend_type = UNICC_BACKEND_UNKNOWN;
 /* Backend bindings live in separate translation units. */
 int unicc_vtable_init_nccl(unicc_lib_handle_t handle);
 int unicc_vtable_init_rccl(unicc_lib_handle_t handle);
+int unicc_vtable_init_oneccl(unicc_lib_handle_t handle);
+int unicc_vtable_init_eccl(unicc_lib_handle_t handle);
 
 unicc_backend_type_t unicc_get_backend_type(void) {
     return g_backend_type;
@@ -31,15 +34,35 @@ static void* load_symbol(unicc_lib_handle_t handle, const char *name) {
     return unicc_platform_dlsym(handle, name);
 }
 
-/* Validate the minimal set a backend must export for the M2 collective face to
- * work. Each core slot accepts either the nccl* or the rccl* spelling, because
- * validation runs before identification. Symbols outside this set degrade to a
- * NULL slot and are gated by *_available() (see docs/SUPPORT_MATRIX.md). */
+/* Validate the minimal set a backend must export for the collective face to
+ * work. Each core slot accepts any registered vendor's spelling, because
+ * validation runs before identification; a pure oneCCL or ECCL library must
+ * not fail this check for lacking nccl* symbols. Symbols outside this set
+ * degrade to a NULL slot and are gated by *_available()
+ * (see docs/SUPPORT_MATRIX.md). P2 extends each OR-set with the CNCL/HCCL/MCCL
+ * spellings when those backends land. */
+static int core_symbol_ok(unicc_lib_handle_t handle, const char **spellings) {
+    for (int i = 0; spellings[i] != NULL; i++) {
+        if (load_symbol(handle, spellings[i]) != NULL) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 int unicc_vtable_validate_core(unicc_lib_handle_t handle) {
-    if ((!load_symbol(handle, "ncclGetVersion") && !load_symbol(handle, "rcclGetVersion")) ||
-        (!load_symbol(handle, "ncclCommInitRank") && !load_symbol(handle, "rcclCommInitRank")) ||
-        (!load_symbol(handle, "ncclAllReduce") && !load_symbol(handle, "rcclAllReduce")) ||
-        (!load_symbol(handle, "ncclBroadcast") && !load_symbol(handle, "rcclBroadcast"))) {
+    const char *get_version[] = {"ncclGetVersion", "rcclGetVersion",
+                                 "onecclGetVersion", "ecclGetVersion", NULL};
+    const char *init_rank[]   = {"ncclCommInitRank", "rcclCommInitRank",
+                                 "onecclCommInitRank", "ecclCommInitRank", NULL};
+    const char *allreduce[]   = {"ncclAllReduce", "rcclAllReduce",
+                                 "onecclAllReduce", "ecclAllReduce", NULL};
+    const char *broadcast[]   = {"ncclBroadcast", "rcclBroadcast",
+                                 "onecclBroadcast", "ecclBroadcast", NULL};
+    if (!core_symbol_ok(handle, get_version) ||
+        !core_symbol_ok(handle, init_rank) ||
+        !core_symbol_ok(handle, allreduce) ||
+        !core_symbol_ok(handle, broadcast)) {
         fprintf(stderr, "[UniCCL:ERROR] Backend library does not export the required core symbols\n");
         return UNICC_ERR_SYMBOL_NOT_FOUND;
     }
@@ -65,12 +88,24 @@ int unicc_vtable_init(unicc_lib_handle_t handle) {
         return ret;
     }
 
+    /* Datatype/op tables start at the NCCL-family numbering; the binding below
+     * may overwrite entries where a vendor's numbering differs. This reset
+     * keeps every init deterministic even if a previous init left a divergent
+     * backend's table in place. */
+    unicc_dtmap_reset_nccl();
+
     switch (g_backend_type) {
         case UNICC_BACKEND_NCCL:
             ret = unicc_vtable_init_nccl(handle);
             break;
         case UNICC_BACKEND_RCCL:
             ret = unicc_vtable_init_rccl(handle);
+            break;
+        case UNICC_BACKEND_ONECCL:
+            ret = unicc_vtable_init_oneccl(handle);
+            break;
+        case UNICC_BACKEND_ECCL:
+            ret = unicc_vtable_init_eccl(handle);
             break;
         default:
             fprintf(stderr, "[UniCCL:ERROR] Unknown backend type\n");

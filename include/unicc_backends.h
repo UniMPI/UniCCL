@@ -4,11 +4,16 @@
 #include "unicc_platform.h"
 #include "unicc_errors.h"
 
-/* Backend types. */
+/* Backend types. The CCL vendor prefixes below are the symbol families this
+ * wrapper loads and binds (see docs/BACKENDS.md). */
 typedef enum {
     UNICC_BACKEND_UNKNOWN = 0,
-    UNICC_BACKEND_NCCL,
-    UNICC_BACKEND_RCCL
+    UNICC_BACKEND_NCCL,    /* NVIDIA NCCL          (nccl*)   */
+    UNICC_BACKEND_RCCL,    /* AMD RCCL, defensive  (rccl + nccl family) */
+    UNICC_BACKEND_ONECCL,  /* Intel oneCCL v2      (oneccl*) */
+    UNICC_BACKEND_ECCL     /* Enflame ECCL         (eccl*)   */
+    /* P2 adds: UNICC_BACKEND_CNCL, UNICC_BACKEND_HCCL,
+     *          UNICC_BACKEND_MCCL_MUSA, UNICC_BACKEND_MCCL_METAX */
 } unicc_backend_type_t;
 
 /* Backend description table entry. */
@@ -17,6 +22,7 @@ typedef struct {
     const char *name;          /* value accepted by UNICC_BACKEND */
     const char *lib_name;      /* preferred library name to dlopen */
     const char *lib_name_alt;  /* fallback when lib_name fails (NULL = none) */
+    const char *probe_symbol;  /* identifying symbol for unicc_loader_identify_backend */
     int priority;              /* future use: platform-default ordering */
 } unicc_backend_info_t;
 
@@ -42,7 +48,7 @@ void unicc_diagnose_backend(const char *lib_path);
 int unicc_print_backend_info(void);
 
 /* Known backends. */
-#define UNICC_MAX_BACKENDS 2
+#define UNICC_MAX_BACKENDS 4
 extern const unicc_backend_info_t unicc_backends[UNICC_MAX_BACKENDS];
 
 #endif /* UNICC_BACKENDS_H */

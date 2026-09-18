@@ -22,6 +22,8 @@ static int g_failures = 0;
 /* Must match the values hardcoded in the fixtures. */
 #define EXPECT_FAKE_NCCL_VERSION ((2U << 22) | (19U << 12) | 7U)
 #define EXPECT_FAKE_RCCL_VERSION ((6U << 20) | (1U << 12) | 96U)
+#define EXPECT_FAKE_ONECCL_VERSION ((2022U << 22) | (1U << 12) | 0U)
+#define EXPECT_FAKE_ECCL_VERSION ((3U << 22) | (5U << 12) | 1U)
 
 static void switch_fixture(const char *path) {
     unsetenv("UNICC_BACKEND");
@@ -54,10 +56,10 @@ static void test_fake_nccl_full(const char *fake_nccl) {
 
     /* communicator bootstrap */
     CHECK(unicc_comm_available() == 1);
-    unicc_unique_id_t uid;
-    CHECK(unicc_get_unique_id(&uid) == UNICC_OK);
+    unicc_comm_id_t id;
+    CHECK(unicc_get_unique_id(&id) == UNICC_OK);
     unicc_comm_t comm = NULL;
-    CHECK(unicc_comm_init_rank(&comm, 1, uid, 0) == UNICC_OK);
+    CHECK(unicc_comm_init_rank(&comm, 1, &id, 0) == UNICC_OK);
     CHECK(comm != NULL);
     int count = 0, crank = -1;
     CHECK(unicc_comm_count(comm, &count) == UNICC_OK);
@@ -108,10 +110,10 @@ static void test_fake_rccl_identified_rccl(const char *fake_rccl) {
     CHECK(unicc_backend_version(&bv) == UNICC_OK);
     CHECK((unsigned)bv == EXPECT_FAKE_RCCL_VERSION);  /* rcclGetVersion bound */
 
-    unicc_unique_id_t uid;
-    CHECK(unicc_get_unique_id(&uid) == UNICC_OK);
+    unicc_comm_id_t id;
+    CHECK(unicc_get_unique_id(&id) == UNICC_OK);
     unicc_comm_t comm = NULL;
-    CHECK(unicc_comm_init_rank(&comm, 1, uid, 0) == UNICC_OK);
+    CHECK(unicc_comm_init_rank(&comm, 1, &id, 0) == UNICC_OK);
 
     /* rcclAllReduce adds a distinctive +1000.0f on float32: if the nccl*-compat
      * family had been bound instead, the +1000 marker would be absent. This is
@@ -119,6 +121,81 @@ static void test_fake_rccl_identified_rccl(const char *fake_rccl) {
     float in[2] = {5.0f, 7.0f}, out[2] = {0.0f, 0.0f};
     CHECK(unicc_allreduce(in, out, 2, UNICC_F32, UNICC_SUM, comm, NULL) == UNICC_OK);
     CHECK(out[0] == 1005.0f && out[1] == 1007.0f);
+
+    CHECK(unicc_comm_destroy(comm) == UNICC_OK);
+    CHECK(unicc_finalize() == UNICC_OK);
+}
+
+static void test_fake_oneccl_full(const char *fake_oneccl) {
+    printf("[test_api] fake-oneccl full round trip...\n");
+    switch_fixture(fake_oneccl);
+
+    int bv = 0;
+    CHECK(unicc_init() == UNICC_OK);
+    CHECK(strcmp(unicc_backend_name(), "oneccl") == 0);
+    CHECK(unicc_backend_version(&bv) == UNICC_OK);
+    CHECK((unsigned)bv == EXPECT_FAKE_ONECCL_VERSION);
+
+    /* The oneccl fixture ex ports a 4096-byte id; the wrapper must carry the
+     * full length through get_unique_id (never truncate to 128). */
+    unicc_comm_id_t id;
+    CHECK(unicc_get_unique_id(&id) == UNICC_OK);
+    CHECK(id.len == 4096);
+
+    unicc_comm_t comm = NULL;
+    CHECK(unicc_comm_init_rank(&comm, 1, &id, 0) == UNICC_OK);
+    CHECK(comm != NULL);
+
+    int count = 0, crank = -1;
+    CHECK(unicc_comm_count(comm, &count) == UNICC_OK);
+    CHECK(count == 1);
+    CHECK(unicc_comm_user_rank(comm, &crank) == UNICC_OK);
+    CHECK(crank == 0);
+
+    /* onecclAllReduce adds +2000.0f on float32: proves the oneccl* binding
+     * (not some nccl* fallback) is wired up, and that broadcast went through
+     * the double-buffer adapter. */
+    float in[2] = {3.0f, 9.0f}, out[2] = {0.0f, 0.0f};
+    CHECK(unicc_allreduce(in, out, 2, UNICC_F32, UNICC_SUM, comm, NULL) == UNICC_OK);
+    CHECK(out[0] == 2003.0f && out[1] == 2009.0f);
+    out[0] = 0.0f; out[1] = 0.0f;
+    CHECK(unicc_broadcast(out, 2, UNICC_F32, 0, comm, NULL) == UNICC_OK);
+
+    CHECK(unicc_group_start() == UNICC_OK);
+    CHECK(unicc_group_end() == UNICC_OK);
+
+    CHECK(unicc_comm_destroy(comm) == UNICC_OK);
+    CHECK(unicc_finalize() == UNICC_OK);
+}
+
+static void test_fake_eccl_full(const char *fake_eccl) {
+    printf("[test_api] fake-eccl full round trip...\n");
+    switch_fixture(fake_eccl);
+
+    int bv = 0;
+    CHECK(unicc_init() == UNICC_OK);
+    CHECK(strcmp(unicc_backend_name(), "eccl") == 0);
+    CHECK(unicc_backend_version(&bv) == UNICC_OK);
+    CHECK((unsigned)bv == EXPECT_FAKE_ECCL_VERSION);
+
+    unicc_comm_id_t id;
+    CHECK(unicc_get_unique_id(&id) == UNICC_OK);
+    CHECK(id.len == 128);
+
+    unicc_comm_t comm = NULL;
+    CHECK(unicc_comm_init_rank(&comm, 1, &id, 0) == UNICC_OK);
+
+    /* ecclCommUserRank is not exported by the ecosystem: slot NULL, api reports
+     * NOT_SUPPORTED while the rest of the face keeps working. */
+    int crank = -1;
+    CHECK(unicc_comm_user_rank(comm, &crank) == UNICC_ERR_NOT_SUPPORTED);
+
+    /* ecclAllReduce adds +3000.0f on float32. */
+    float in[2] = {1.0f, 2.0f}, out[2] = {0.0f, 0.0f};
+    CHECK(unicc_allreduce(in, out, 2, UNICC_F32, UNICC_SUM, comm, NULL) == UNICC_OK);
+    CHECK(out[0] == 3001.0f && out[1] == 3002.0f);
+    out[0] = 0.0f; out[1] = 0.0f;
+    CHECK(unicc_broadcast(out, 2, UNICC_F32, 0, comm, NULL) == UNICC_OK);
 
     CHECK(unicc_comm_destroy(comm) == UNICC_OK);
     CHECK(unicc_finalize() == UNICC_OK);
@@ -138,9 +215,9 @@ static void test_group_end_degrade(const char *fake_nccl_missing) {
     /* everything else still works */
     float in[2] = {1, 2}, out[2] = {0, 0};
     unicc_comm_t comm = NULL;
-    unicc_unique_id_t uid;
-    CHECK(unicc_get_unique_id(&uid) == UNICC_OK);
-    CHECK(unicc_comm_init_rank(&comm, 1, uid, 0) == UNICC_OK);
+    unicc_comm_id_t id;
+    CHECK(unicc_get_unique_id(&id) == UNICC_OK);
+    CHECK(unicc_comm_init_rank(&comm, 1, &id, 0) == UNICC_OK);
     CHECK(unicc_allreduce(in, out, 2, UNICC_F32, UNICC_SUM, comm, NULL) == UNICC_OK);
     CHECK(out[0] == 1.0f && out[1] == 2.0f);
     CHECK(unicc_comm_destroy(comm) == UNICC_OK);
@@ -152,10 +229,14 @@ int main(int argc, char **argv) {
     const char *fake_nccl = NULL;
     const char *fake_rccl = NULL;
     const char *fake_nccl_missing = NULL;
+    const char *fake_oneccl = NULL;
+    const char *fake_eccl = NULL;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--fake-nccl") == 0 && i + 1 < argc) { fake_nccl = argv[++i]; }
         else if (strcmp(argv[i], "--fake-rccl") == 0 && i + 1 < argc) { fake_rccl = argv[++i]; }
         else if (strcmp(argv[i], "--fake-nccl-missing") == 0 && i + 1 < argc) { fake_nccl_missing = argv[++i]; }
+        else if (strcmp(argv[i], "--fake-oneccl") == 0 && i + 1 < argc) { fake_oneccl = argv[++i]; }
+        else if (strcmp(argv[i], "--fake-eccl") == 0 && i + 1 < argc) { fake_eccl = argv[++i]; }
     }
 
     printf("unicc_version_string = %s\n", UNICC_VERSION_STRING);
@@ -164,6 +245,8 @@ int main(int argc, char **argv) {
     if (fake_nccl) test_fake_nccl_full(fake_nccl);
     if (fake_rccl) test_fake_rccl_identified_rccl(fake_rccl);
     if (fake_nccl_missing) test_group_end_degrade(fake_nccl_missing);
+    if (fake_oneccl) test_fake_oneccl_full(fake_oneccl);
+    if (fake_eccl) test_fake_eccl_full(fake_eccl);
 
     if (g_failures == 0) {
         printf("test_api: ALL TESTS PASSED\n");

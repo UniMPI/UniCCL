@@ -4,7 +4,7 @@
 
 cmake_minimum_required(VERSION 3.10)
 
-project(unicc VERSION 0.1.0 LANGUAGES C)
+project(unicc VERSION 0.2.0 LANGUAGES C)
 
 option(UNICC_BUILD_TESTS               "Build UniCCL unit tests (fake backends)" ON)
 option(UNICC_BUILD_TESTS_INTEGRATION   "Build real-backend integration test (requires NCCL/RCCL at run time)" OFF)
@@ -15,8 +15,11 @@ set(UNICC_SOURCES
     src/unicc_loader.c
     src/unicc_vtable.c
     src/unicc_api.c
+    src/unicc_dtmap.c
     src/backends/nccl.c
-    src/backends/rccl.c)
+    src/backends/rccl.c
+    src/backends/oneccl.c
+    src/backends/eccl.c)
 
 if(WIN32)
     list(APPEND UNICC_SOURCES src/unicc_platform_windows.c)

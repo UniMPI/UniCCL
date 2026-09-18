@@ -11,13 +11,19 @@
  * handle unchanged in this slot and never inspects it. */
 typedef void* unicc_comm_t;
 
-/* Unique communicator id. Layout-identical to ncclUniqueId (128 bytes), so a
- * uid obtained via unicc_get_unique_id can be passed straight to the backend's
- * comm-init call; the by-value convention below matches the native prototype
- * ncclCommInitRank(ncclComm_t*, int, ncclUniqueId, int). */
+/* Communicator bootstrap id. Vendors disagree on id size, so the id carries its
+ * length and the wrapper binds native symbols through small adapter functions
+ * in each backend file (never a direct dlsym cast for init/get_unique_id).
+ *  - NCCL family (nccl/rccl/DCU/MCCL): 128 bytes, layout = ncclUniqueId;
+ *  - Cambricon CNCL: cnclCliqueId is 136 bytes (128B data + uint64 hash);
+ *  - Intel oneCCL v2: on ecclUniqueId is 4096 bytes;
+ *  - Ascend HCCL: HcclRootInfo is 4108 bytes.
+ * The cold path (get_unique_id / comm_init_rank / transport of the id) is the
+ * only place that sees this; collectives never do. */
 typedef struct {
-    unsigned char data[UNICC_UNIQUE_ID_BYTES];
-} unicc_unique_id_t;
+    size_t len;
+    unsigned char data[UNICC_COMM_ID_MAX];
+} unicc_comm_id_t;
 
 /* Backend function-pointer dispatch table (the "vtable"; mirrors UniMPI).
  *
@@ -28,27 +34,31 @@ typedef struct {
  * UNICC_ERR_NOT_SUPPORTED, and the *_available() predicates let callers probe
  * availability ahead of time.
  *
- * Slots keep the backends' native signatures so bindings are straight casts.
+ * Hot-path slots (allreduce/broadcast/group_*) and the simple accessors keep the
+ * backends' native signatures so binding is a straight cast. The cold-path id
+ * slots (get_unique_id / comm_init_rank) take const/pointer unicc_comm_id_t and
+ * are backed by small per-backend adapters, because the native id is by-value
+ * and vendor-sized (128..4108 bytes) — never a direct dlsym cast.
  *  - ncclGetVersion(int*), ncclGetUniqueId(ncclUniqueId*)
  *  - ncclAllReduce(..., ncclDataType_t, ncclRedOp_t, ncclComm_t, cudaStream_t)
  *  - ncclBroadcast(..., int root, ncclComm_t, cudaStream_t)
  * cudaStream_t is an opaque host pointer, so the stream parameter is `void*`.
- * The collection Op / Datatype parameters are `int` because NCCL and RCCL use
- * numerically identical enum values (0..10 datatypes, 0..3 ops); UniCCL maps its
- * own unicc_datatype_t / unicc_reduce_op_t onto those values in unicc_api.c.
+ * Datatype / Op parameters are `int`; the wrapper maps its own enums onto the
+ * active backend's numeric values through the init-time per-backend tables in
+ * unicc_dtmap.h (backends disagree numerically — see docs/BACKENDS.md).
  */
 typedef struct {
     /* --- core: required; checked by unicc_vtable_validate_core --- */
     int (*get_version)(int *version);
     int (*comm_init_rank)(unicc_comm_t *comm, int nranks,
-                          unicc_unique_id_t uid, int rank);
+                          const unicc_comm_id_t *id, int rank);
     int (*allreduce)(const void *sendbuf, void *recvbuf, size_t count,
                      int datatype, int op, unicc_comm_t comm, void *stream);
     int (*broadcast)(void *buf, size_t count, int datatype, int root,
                      unicc_comm_t comm, void *stream);
 
     /* --- optional: may be NULL; *_available() gates callers --- */
-    int (*get_unique_id)(unicc_unique_id_t *uid);
+    int (*get_unique_id)(unicc_comm_id_t *id);
     int (*comm_destroy)(unicc_comm_t comm);
     int (*comm_count)(unicc_comm_t comm, int *count);
     int (*comm_user_rank)(unicc_comm_t comm, int *rank);

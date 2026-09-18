@@ -75,6 +75,17 @@ is bound and fake-tested but the real-backend integration run did not call it.
 > host has no `rccl*` symbols at all, so the native-RCCL row stays
 > unevaluated there.
 
+## P1 backend-matrix coverage (v0.2.0)
+
+The `oneccl` and `eccl` backends are **fake-verified only** at this milestone:
+each has a host-side fixture (`fake_oneccl_identity.so`, `fake_eccl_identity.so`)
+exercising identification, full vtable binding, the id adapters (oneCCL
+4096-byte id, double-buffered broadcast) and the ECCL `comm_user_rank` degrade
+path. No real oneCCL / ECCL host is assigned; real-symbol rows above
+deliberately stay "Not verified" until `nm -D` on live libraries (see the
+verification list in
+`docs/official/ccL-ecosystem-survey-2026-09-17.md`).
+
 ## NCCL real-backend verification record
 
 - **Date / machine**: 2026-09-17, `iota` (172.18.7.45, x86_64).

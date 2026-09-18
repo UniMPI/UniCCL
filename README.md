@@ -17,9 +17,12 @@ shim. So "load each backend's native symbols" resolves to the `nccl` binding
 for all three today; the *vendor identity* of a loaded library is a separate
 question, answered by its own probe, not by the symbol prefix.
 
-This is the **M2 skeleton**: platform abstraction, runtime backend loading,
-the minimal `unicc_*` collective face, `nccl` / `rccl` bindings and a fake-backend
-unit suite that runs on any Linux host with no GPU at all.
+This is the **M2 skeleton plus the first backend-matrix milestone (P1)**:
+platform abstraction, runtime backend loading, the minimal `unicc_*`
+collective face, the `nccl` / `rccl` bindings and the NCCL-shaped `oneccl` /
+`eccl` bindings, and a fake-backend unit suite that runs on any Linux host
+with no GPU at all. Domestic-GPU backends (CNCL / HCCL / dual MCCL) land in a
+later milestone (docs/BACKENDS.md "Identification order").
 
 ```
 ┌─────────────────────────┐
@@ -27,13 +30,12 @@ unit suite that runs on any Linux host with no GPU at all.
 └────────────┬────────────┘
              │  unicc_* API (unicc_api.c)
 ┌────────────▼────────────┐
-│ UniCCL wrapper            │   loader + vtable + availability gates
-└──────┬────────────┬─────┘
-       │            │
-  backends/        backends/
-  nccl.c           rccl.c
-       │            │
-   libnccl.so   librccl.so     (dlopen'd at run time)
+│ UniCCL wrapper            │   loader + vtable + dtmap + availability gates
+└──────┬─────────────────┘
+       │
+  backends/{nccl,rccl,oneccl,eccl}.c
+       │
+   libnccl.so  librccl.so  libccl.so.2  libeccl.so   (dlopen'd at run time)
 ```
 
 ## Feature map (milestone M2)
@@ -41,14 +43,16 @@ unit suite that runs on any Linux host with no GPU at all.
 | # | Mechanism | Where |
 |---|-----------|-------|
 | 1 | dlopen/dlsym platform abstraction | `src/unicc_platform_posix.c` / `_windows.c` |
-| 2 | backend table (nccl, rccl) + soname fallback | `src/unicc_loader.c` |
+| 2 | backend table (nccl, rccl, oneccl, eccl) + soname fallback | `src/unicc_loader.c` |
 | 3 | selection priority `UNICC_LIBRARY` → `UNICC_BACKEND` → default | `src/unicc_loader.c` |
-| 4 | identify-by-feature-symbol (**rccl\* checked before nccl\*, see BACKENDS.md**) | `src/unicc_loader.c` |
+| 4 | identify-by-probe-symbol (vendor prefix first, then `nccl*`; see BACKENDS.md) | `src/unicc_loader.c` |
 | 5 | zero-initialized vtable + core check + per-backend dispatch | `src/unicc_vtable.c` |
-| 6 | dlsym bindings, missing symbol → NULL | `src/backends/nccl.c`, `src/backends/rccl.c` |
-| 7 | unified `unicc_*` semantic API + `*_available()` gates | `src/unicc_api.c`, `include/unicc.h` |
-| 8 | fake-backend unit tests (host, no GPU) | `tests/` |
-| 9 | real-backend integration test (opt-in) | `tests/integration/` |
+| 6 | dlsym bindings, missing symbol → NULL; cold-path id adapters | `src/backends/{nccl,rccl,oneccl,eccl}.c` |
+| 7 | length-carrying bootstrap id (`unicc_comm_id_t`) | `include/unicc_vtable.h`, `src/unicc_api.c` |
+| 8 | per-backend datatype/op tables, init-time fixed (UniMPI-style) | `src/unicc_dtmap.c`, `include/unicc_dtmap.h` |
+| 9 | unified `unicc_*` semantic API + `*_available()` gates | `src/unicc_api.c`, `include/unicc.h` |
+| 10 | fake-backend unit tests (host, no GPU) | `tests/` |
+| 11 | real-backend integration test (opt-in) | `tests/integration/` |
 
 ## Build
 
@@ -68,6 +72,8 @@ compiles anywhere): `-DUNICC_BUILD_TESTS_INTEGRATION=ON`.
 ```bash
 UNICC_LIBRARY=build/tests/fake/fake_nccl_identity.so ./build/minimal
 UNICC_LIBRARY=build/tests/fake/fake_rccl_identity.so   ./build/minimal
+UNICC_LIBRARY=build/tests/fake/fake_oneccl_identity.so ./build/minimal
+UNICC_LIBRARY=build/tests/fake/fake_eccl_identity.so   ./build/minimal
 ```
 
 Real backend:
@@ -75,26 +81,30 @@ Real backend:
 ```bash
 UNICC_BACKEND=nccl ./build/minimal          # NVIDIA host
 UNICC_BACKEND=rccl ./build/minimal          # AMD / ROCm host
+UNICC_BACKEND=oneccl ./build/minimal        # Intel oneCCL v2 host
+UNICC_BACKEND=eccl ./build/minimal          # Enflame TopsRider host
 ```
 
 ## Runtime backend selection
 
 1. `UNICC_LIBRARY` — exact library path or loader-resolvable name
    (the CI / test path);
-2. `UNICC_BACKEND` — `nccl` or `rccl`;
+2. `UNICC_BACKEND` — `nccl`, `rccl`, `oneccl` or `eccl`;
 3. platform default — NVIDIA NCCL (`libnccl.so`, falling back to
    `libnccl.so.2`). CUDA/ROCm-presence defaulting is left for a later
    milestone.
 
 See `docs/BACKENDS.md` for the full rules, including the RCCL
-dual-symbol (`rccl*` + `nccl*` compat) identification subtlety.
+dual-symbol (`rccl*` + `nccl*` compat) identification subtlety and the
+per-backend datatype/op tables.
 
 ## Repo layout
 
 ```
 include/     public contract: unicc.h, unicc_vtable.h, unicc_backends.h,
-             unicc_platform.h, unicc_errors.h, unicc_version.h
-src/         loader, vtable, api, platform, backends/{nccl,rccl}.c
+             unicc_dtmap.h, unicc_platform.h, unicc_errors.h, unicc_version.h
+src/         loader, vtable, api, dtmap, platform,
+             backends/{nccl,rccl,oneccl,eccl}.c
 tests/       fake fixtures + unit tests + integration test + runner
 examples/    minimal.c
 docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
@@ -103,8 +113,9 @@ docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
 
 ## Status
 
-- Verified on this host: loader / vtable / fake-backend unit tests (all
-  green), `minimal` against both fake fixtures.
+- Verified on this host (unicc 0.2.0): loader / vtable / fake-backend unit
+  tests all green across four fixtures (`nccl`, `rccl`, `oneccl`, `eccl`),
+  `minimal` drives each end to end.
 - Verified on real hardware:
   - NCCL 2.28.7 world=2 allreduce PASSED on `iota` (2× RTX PRO 6000 Blackwell,
     via HPC SDK bundled NCCL);
@@ -112,8 +123,9 @@ docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
     `librccl.so` — a pure `nccl*`-compat layer, driven as "nccl" with no
     interface change; both DTK 23.10.1 and 25.04 export no `rccl*`/`hccl*`).
   Full records in `docs/SUPPORT_MATRIX.md`.
-- Not yet verified: native AMD RCCL (`rccl*` symbols) — no AMD host assigned;
-  Hygon DCU has no `rccl*` to verify against.
+- Not yet verified on real hardware: oneCCL v2 (`nm -D libccl.so.2`), ECCL
+  (`nm -D libeccl.so`, datatype values), native AMD RCCL — pending hosts; the
+  fake fixtures model the documented vendor surfaces.
 
 ## Milestone map (from the D2 unified-communication-stack decision)
 
@@ -122,3 +134,7 @@ docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
 - **M2.3** real-backend integration + SUPPORT_MATRIX (runner + harness in place;
   execution on GPU images pending)
 - **M2.4** UMC pilot integration (next)
+- **P1 (backend matrix)** id-type upgrade, per-backend datatype/op tables,
+  multi-backend identify, `oneccl` + `eccl` bindings + fixtures ✅ (v0.2.0)
+- **P2 (backend matrix)** CNCL / HCCL / dual MCCL adapters + real-host
+  verification list (pending)

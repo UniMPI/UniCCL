@@ -52,7 +52,7 @@ int unicc_finalize(void);
 int unicc_is_initialized(void);
 
 /* --- Version / diagnostics -------------------------------------- */
-/* Name of the active backend: "nccl", "rccl", or "unknown". */
+/* Name of the active backend: "nccl", "rccl", "oneccl", "eccl", or "unknown". */
 const char* unicc_backend_name(void);
 /* Path of the library that was actually loaded ("" if none). */
 const char* unicc_get_library_path(void);
@@ -66,8 +66,12 @@ int unicc_print_backend_info(void);
 int unicc_diagnose(void);
 
 /* --- Communicators ---------------------------------------------- */
-int unicc_get_unique_id(unicc_unique_id_t *uid);
-int unicc_comm_init_rank(unicc_comm_t *comm, int nranks, unicc_unique_id_t uid, int rank);
+/* Bootstrap ids carry an explicit byte length because vendors disagree on size
+ * (NCCL family 128B, Intel oneCCL 4096B, CNCL 136B, HCCL 4108B). Get the id
+ * on rank 0, transport it verbatim (data + len), and hand it to every rank's
+ * comm_init_rank. */
+int unicc_get_unique_id(unicc_comm_id_t *id);
+int unicc_comm_init_rank(unicc_comm_t *comm, int nranks, const unicc_comm_id_t *id, int rank);
 int unicc_comm_destroy(unicc_comm_t comm);
 int unicc_comm_count(unicc_comm_t comm, int *count);
 int unicc_comm_user_rank(unicc_comm_t comm, int *rank);
