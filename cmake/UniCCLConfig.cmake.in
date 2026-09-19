@@ -1,0 +1,34 @@
+# UniCCLConfig.cmake - find_package(UniCCL CONFIG) entry point.
+#
+# Provides the imported target unicc::unicc (the installed static/shared
+# UniCCL library). All build-time properties travel with the export:
+# include dirs ($<INSTALL_INTERFACE:include>), c_std_99, the dl* link library
+# (CMAKE_DL_LIBS) and position-independent-code - a consumer needs nothing but
+#   find_package(UniCCL CONFIG REQUIRED)
+#   target_link_libraries(<app> PRIVATE unicc::unicc)
+#
+# Unlike some package configs that reference a Targets file which is never
+# generated, this config includes the export created by install(EXPORT ...) -
+# the two are installed as a pair, so the include cannot dangle.
+
+@PACKAGE_INIT@
+
+# The imported targets (unicc::unicc plus its interface properties). Never
+# silence the error: a broken install should fail loudly at configure time,
+# not at link time.
+include("${CMAKE_CURRENT_LIST_DIR}/uniccTargets.cmake")
+
+check_required_components(unicc)
+
+# For parity with the in-tree CACHE variables, also expose the machine-usable
+# library and include paths (both fixed at configure/install time via the
+# @var@ substitutions below - the install layout, not the consumer's own
+# CMAKE_INSTALL_* which may be unset). Consumers must link the unicc::unicc
+# target, not these paths, but CMake cache-style variables let a wrapping
+# build locate the binary without target introspection.
+if(NOT DEFINED unicc_LIBRARY)
+    set(unicc_LIBRARY "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@/@CMAKE_STATIC_LIBRARY_PREFIX@unicc@CMAKE_STATIC_LIBRARY_SUFFIX@")
+endif()
+if(NOT DEFINED unicc_INCLUDE_DIRS)
+    set(unicc_INCLUDE_DIRS "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_INCLUDEDIR@")
+endif()

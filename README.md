@@ -67,6 +67,32 @@ ctest --test-dir build --output-on-failure    # unit suite, all green
 Optional integration build (requires a real NCCL/RCCL host to *run*; it still
 compiles anywhere): `-DUNICC_BUILD_TESTS_INTEGRATION=ON`.
 
+### Install & use as a package
+
+The install exports a CMake package so downstream projects link via
+`find_package(UniCCL CONFIG)` instead of `add_subdirectory`:
+
+```bash
+cmake --install build --prefix /opt/unicc
+```
+
+```cmake
+# consumer CMakeLists.txt
+find_package(UniCCL CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE unicc::unicc)
+```
+
+Everything travels with the export: the install-layout include dir,
+`c_std_99`, the `dl*` link library and position-independent code, so the
+consumer needs no flag of its own. A minimal standalone consumer is in
+`examples/find_package-consumer/`:
+
+```bash
+cmake -S examples/find_package-consumer -B build-consumer \
+    -DCMAKE_PREFIX_PATH=/opt/unicc
+cmake --build build-consumer
+```
+
 ## Quick local run (no GPU needed)
 
 ```bash
@@ -106,7 +132,7 @@ include/     public contract: unicc.h, unicc_vtable.h, unicc_backends.h,
 src/         loader, vtable, api, platform,
              backends/{nccl,rccl,oneccl,eccl,unicc_bind}.c
 tests/       fake fixtures + unit tests + integration test + runner
-examples/    minimal.c
+examples/    minimal.c, find_package-consumer/ (standalone downstream)
 docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
              doc/source records backing the backend facts)
 ```
