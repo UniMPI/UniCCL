@@ -5,7 +5,15 @@
  *   2. a fake-rccl library that also exports nccl* compats is identified and
  *      driven through its rccl* (native) path, never the nccl* compat one;
  *   3. a backend missing an optional symbol degrades to a NULL slot:
- *      unicc_group_end() returns UNICC_ERR_NOT_SUPPORTED, everything else works. */
+ *      unicc_group_end() returns UNICC_ERR_NOT_SUPPORTED, everything else works;
+ *   4. a backend missing GetUniqueId degrades the id slot to NULL too:
+ *      unicc_get_unique_id_available()==0, unicc_comm_available()==0 and
+ *      unicc_get_unique_id() returns NOT_SUPPORTED - never a NULL-call crash
+ *      (review F1/F4);
+ *   5. internal errors (wrong-length bootstrap id) surface as INVALID_ARGUMENT
+ *      and never leak into the raw backend-result channel (F2);
+ *   6. an I64 allreduce round-trips all four 8-byte lanes (fixture dt-size
+ *      table regression guard, F12). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -56,6 +64,7 @@ static void test_fake_nccl_full(const char *fake_nccl) {
 
     /* communicator bootstrap */
     CHECK(unicc_comm_available() == 1);
+    CHECK(unicc_get_unique_id_available() == 1);   /* F4: both bootstrap halves exposed */
     unicc_comm_id_t id;
     CHECK(unicc_get_unique_id(&id) == UNICC_OK);
     unicc_comm_t comm = NULL;
@@ -77,6 +86,26 @@ static void test_fake_nccl_full(const char *fake_nccl) {
           == UNICC_ERR_INVALID_ARGUMENT);
     CHECK(unicc_allreduce(in, out, 4, UNICC_F32, (unicc_reduce_op_t)99, comm, NULL)
           == UNICC_ERR_INVALID_ARGUMENT);
+
+    /* wrong-length (but non-zero) bootstrap id: the binder's guard returns a
+     * UniCCL-internal code, which must surface as INVALID_ARGUMENT and NEVER
+     * leak -8 into the raw backend-result channel (F2). */
+    unicc_comm_id_t bad = {0};
+    bad.len = 64;   /* wrong for the 128 B NCCL family */
+    unicc_comm_t c2 = NULL;
+    CHECK(unicc_comm_init_rank(&c2, 1, &bad, 0) == UNICC_ERR_INVALID_ARGUMENT);
+    raw = 555;
+    CHECK(unicc_get_last_error(&raw) == UNICC_OK);
+    CHECK(raw == 0);
+
+    /* I64 round trip: with the corrected fixture size table (F12) all four
+     * 8-byte lanes must copy; recv is pre-filled with sentinels so a table
+     * regression (4 B for I64) would leave the tail lanes stale. */
+    long long li[4] = {0x0102030405060708LL, -1234567890123456LL, 3LL, 4LL};
+    long long lo[4] = {0x1111111111111111LL, 0x2222222222222222LL,
+                       0x3333333333333333LL, 0x4444444444444444LL};
+    CHECK(unicc_allreduce(li, lo, 4, UNICC_I64, UNICC_SUM, comm, NULL) == UNICC_OK);
+    for (int i = 0; i < 4; i++) CHECK(lo[i] == li[i]);   /* fixture memcpys I64 */
 
     CHECK(unicc_broadcast(out, 4, UNICC_F32, 0, comm, NULL) == UNICC_OK);
     CHECK(unicc_allreduce_available() == 1);
@@ -225,16 +254,40 @@ static void test_group_end_degrade(const char *fake_nccl_missing) {
     CHECK(unicc_finalize() == UNICC_OK);
 }
 
+static void test_missing_unique_id_degrade(const char *fake_nccl_no_uid) {
+    printf("[test_api] missing GetUniqueId -> NULL slot, NOT_SUPPORTED (no crash)...\n");
+    switch_fixture(fake_nccl_no_uid);
+
+    /* Core intact -> init succeeds; the only absent symbol is the optional
+     * GetUniqueId. Before review F1 this SEGFAULTED (a wrapper was installed
+     * over a NULL inner call); now the slot stays NULL. */
+    CHECK(unicc_init() == UNICC_OK);
+    CHECK(strcmp(unicc_backend_name(), "nccl") == 0);
+
+    CHECK(unicc_get_unique_id_available() == 0);   /* F4: gate reports it */
+    CHECK(unicc_comm_available() == 0);            /* F4: bootstrap not fully usable */
+    unicc_comm_id_t id;
+    CHECK(unicc_get_unique_id(&id) == UNICC_ERR_NOT_SUPPORTED);   /* was a crash */
+
+    /* everything reachable without the id still works */
+    int bv = 0;
+    CHECK(unicc_backend_version(&bv) == UNICC_OK);
+
+    CHECK(unicc_finalize() == UNICC_OK);
+}
+
 int main(int argc, char **argv) {
     const char *fake_nccl = NULL;
     const char *fake_rccl = NULL;
     const char *fake_nccl_missing = NULL;
+    const char *fake_nccl_no_uid = NULL;
     const char *fake_oneccl = NULL;
     const char *fake_eccl = NULL;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--fake-nccl") == 0 && i + 1 < argc) { fake_nccl = argv[++i]; }
         else if (strcmp(argv[i], "--fake-rccl") == 0 && i + 1 < argc) { fake_rccl = argv[++i]; }
         else if (strcmp(argv[i], "--fake-nccl-missing") == 0 && i + 1 < argc) { fake_nccl_missing = argv[++i]; }
+        else if (strcmp(argv[i], "--fake-nccl-no-uid") == 0 && i + 1 < argc) { fake_nccl_no_uid = argv[++i]; }
         else if (strcmp(argv[i], "--fake-oneccl") == 0 && i + 1 < argc) { fake_oneccl = argv[++i]; }
         else if (strcmp(argv[i], "--fake-eccl") == 0 && i + 1 < argc) { fake_eccl = argv[++i]; }
     }
@@ -245,6 +298,7 @@ int main(int argc, char **argv) {
     if (fake_nccl) test_fake_nccl_full(fake_nccl);
     if (fake_rccl) test_fake_rccl_identified_rccl(fake_rccl);
     if (fake_nccl_missing) test_group_end_degrade(fake_nccl_missing);
+    if (fake_nccl_no_uid) test_missing_unique_id_degrade(fake_nccl_no_uid);
     if (fake_oneccl) test_fake_oneccl_full(fake_oneccl);
     if (fake_eccl) test_fake_eccl_full(fake_eccl);
 

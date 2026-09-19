@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>   /* PATH_MAX (UNICC_TEST_UID_FILE temp publish) */
 #include "unicc.h"
 #include "devmem.h"
 
@@ -45,7 +46,10 @@ int main(void) {
            unicc_get_library_path());
 
     int bv = 0;
-    unicc_backend_version(&bv);
+    if (unicc_backend_version(&bv) != UNICC_OK) {
+        fprintf(stderr, "unicc_backend_version failed\n");
+        return 2;
+    }
 
     /* Bootstrap the unique id: rank 0 publishes (id.data + id.len), others
      * poll and consume it. The id carries its length so any of the supported
@@ -62,29 +66,46 @@ int main(void) {
                 fprintf(stderr, "UNICC_TEST_UID_FILE required when size > 1\n");
                 return 2;
             }
-            FILE *f = fopen(uid_file, "w");
+            /* Publish atomically: write a temp sibling, then rename over the
+             * target, so a consumer can never observe a partial file (F13).
+             * The previous fopen(uid_file, "w") could be read 0/partial bytes
+             * by a peer that mktemp had created the empty file for. */
+            char tmp[PATH_MAX];
+            snprintf(tmp, sizeof tmp, "%s.tmp.%ld", uid_file, (long)getpid());
+            FILE *f = fopen(tmp, "w");
             if (!f || fwrite(id.data, 1, id.len, f) != id.len) {
                 fprintf(stderr, "failed to publish id\n");
                 return 2;
             }
             fclose(f);
+            if (rename(tmp, uid_file) != 0) {
+                fprintf(stderr, "failed to publish id (rename)\n");
+                return 2;
+            }
         }
     } else {
-        FILE *f = NULL;
-        for (int tries = 0; tries < 3000 && !f; tries++) {
-            f = fopen(uid_file, "r");
-            if (!f) usleep(10000);
+        /* Retry until a NON-EMPTY read: with atomic publish the file only ever
+         * appears complete, so this terminates once rank 0 has published. The
+         * old loop polled only fopen and then fread could return 0 on the
+         * pre-created empty mktemp file and abort spuriously (F13). fread is
+         * capped at UNICC_COMM_ID_MAX, so id.len can never exceed it - the old
+         * `> UNICC_COMM_ID_MAX` guard was dead code and is gone (b). */
+        size_t got = 0;
+        for (int tries = 0; tries < 3000 && got == 0; tries++) {
+            FILE *f = fopen(uid_file, "r");
+            if (f) {
+                got = fread(id.data, 1, UNICC_COMM_ID_MAX, f);
+                fclose(f);
+            }
+            if (got == 0) {
+                usleep(10000);
+            }
         }
-        if (!f) {
-            fprintf(stderr, "failed to open published id file\n");
-            return 2;
-        }
-        id.len = fread(id.data, 1, UNICC_COMM_ID_MAX, f);
-        if (id.len == 0 || id.len > UNICC_COMM_ID_MAX) {
+        if (got == 0) {
             fprintf(stderr, "failed to read published id\n");
             return 2;
         }
-        fclose(f);
+        id.len = got;
     }
 
     unicc_devmem_t dm;
@@ -130,8 +151,11 @@ int main(void) {
     float h_send[4], h_recv[4] = {0, 0, 0, 0};
     for (size_t i = 0; i < n; i++) h_send[i] = (float)(rank + 1);
 
-    dm.dev_memcpy((void*)d_send, h_send, n * sizeof(float), UNICC_DEVMEM_H2D);
-    dm.dev_memset((void*)d_recv, 0, n * sizeof(float));
+    if (dm.dev_memcpy((void*)d_send, h_send, n * sizeof(float), UNICC_DEVMEM_H2D) != 0 ||
+        dm.dev_memset((void*)d_recv, 0, n * sizeof(float)) != 0) {
+        fprintf(stderr, "device memcpy/memset failed\n");
+        return 2;
+    }
 
     rc = unicc_allreduce(d_send, d_recv, n, UNICC_F32, UNICC_SUM, comm, NULL);
     if (rc != UNICC_OK) {

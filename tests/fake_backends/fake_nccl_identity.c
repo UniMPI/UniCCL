@@ -9,6 +9,9 @@
  * Compile-time variant (mirrors unimpi's fake fixtures):
  *   UNICC_FAKE_OMIT_GROUP_END - leave ncclGroupEnd out; the vtable slot
  *   degrades to NULL and unicc_group_end() returns UNICC_ERR_NOT_SUPPORTED.
+ *   UNICC_FAKE_OMIT_UNIQUE_ID - leave ncclGetUniqueId out; the optional slot
+ *   degrades to NULL (it used to segfault - review F1) and
+ *   unicc_get_unique_id() reports UNICC_ERR_NOT_SUPPORTED.
  */
 #include <stdlib.h>
 #include <string.h>
@@ -29,13 +32,19 @@ typedef void* ncclComm_t;
 #define FAKE_NCCL_VERSION ((2U << 22) | (19U << 12) | 7U)   /* 2.19.7 */
 
 static size_t fake_dt_size(int dt) {
+    /* Modern NCCL numbering (ncclInt8=0 .. ncclBfloat16=9), matching
+     * docs/BACKENDS.md "Enum mapping". */
     switch (dt) {
-        case 0: case 1: case 2:  return 1;  /* int8 / char / uint8 */
-        case 3: case 4:          return 4;  /* int32 / uint32 */
-        case 5: case 6:          return 8;  /* int64 / uint64 */
-        case 7:                  return 4;  /* float32 */
-        case 8:                  return 8;  /* float64 */
-        case 9: case 10:         return 2;  /* half / bfloat16 */
+        case 0: return 1;  /* UNICC_I8  (ncclInt8)     */
+        case 1: return 1;  /* UNICC_U8  (ncclUint8)    */
+        case 2: return 4;  /* UNICC_I32 (ncclInt32)    */
+        case 3: return 4;  /* UNICC_U32 (ncclUint32)   */
+        case 4: return 8;  /* UNICC_I64 (ncclInt64)    */
+        case 5: return 8;  /* UNICC_U64 (ncclUint64)   */
+        case 6: return 2;  /* UNICC_F16 (ncclFloat16)  */
+        case 7: return 4;  /* UNICC_F32 (ncclFloat32)  */
+        case 8: return 8;  /* UNICC_F64 (ncclFloat64)  */
+        case 9: return 2;  /* UNICC_BF16(ncclBfloat16) */
     }
     return 0;
 }
@@ -51,7 +60,7 @@ static void fake_allreduce_impl(const void *send, void *recv, size_t count,
             for (size_t i = 0; i < count; i++) r[i] += s[i];
             return;
         }
-        if (datatype == 3 /* int32 */) {
+        if (datatype == 2 /* int32 (ncclInt32) */) {
             const int *s = (const int*)send;
             int *r = (int*)recv;
             for (size_t i = 0; i < count; i++) r[i] += s[i];
@@ -69,10 +78,12 @@ FAKE_EXPORT int ncclGetVersion(int *version) {
     return 0;
 }
 
+#ifndef UNICC_FAKE_OMIT_UNIQUE_ID
 FAKE_EXPORT int ncclGetUniqueId(unicc_native_uid_t *id) {
     if (id) memset(id, 0xAB, sizeof(*id));
     return 0;
 }
+#endif
 
 FAKE_EXPORT int ncclCommInitRank(ncclComm_t *comm, int nranks,
                                  unicc_native_uid_t uid, int rank) {

@@ -44,7 +44,7 @@ int main(int argc, char **argv) {
     /* Full NCCL-shaped fake: init fills every slot. */
     if (fake_nccl) {
         unicc_lib_handle_t h = NULL;
-        CHECK(unicc_loader_load(fake_nccl, &h) == UNICC_OK);
+        CHECK(unicc_loader_load(fake_nccl, &h, NULL, 0) == UNICC_OK);
         CHECK(unicc_vtable_init(h) == UNICC_OK);
         CHECK(unicc_get_backend_type() == UNICC_BACKEND_NCCL);
         CHECK(unicc.get_version != NULL);
@@ -69,7 +69,7 @@ int main(int argc, char **argv) {
      * core symbols are still present so vtable init succeeds. */
     if (fake_nccl_missing) {
         unicc_lib_handle_t h = NULL;
-        CHECK(unicc_loader_load(fake_nccl_missing, &h) == UNICC_OK);
+        CHECK(unicc_loader_load(fake_nccl_missing, &h, NULL, 0) == UNICC_OK);
         CHECK(unicc_vtable_init(h) == UNICC_OK);
         CHECK(unicc.allreduce != NULL);
         CHECK(unicc.group_start != NULL);
@@ -82,7 +82,7 @@ int main(int argc, char **argv) {
      * probe wins over any fallback), all slots populated via its adapters. */
     if (fake_oneccl) {
         unicc_lib_handle_t h = NULL;
-        CHECK(unicc_loader_load(fake_oneccl, &h) == UNICC_OK);
+        CHECK(unicc_loader_load(fake_oneccl, &h, NULL, 0) == UNICC_OK);
         CHECK(unicc_vtable_init(h) == UNICC_OK);
         CHECK(unicc_get_backend_type() == UNICC_BACKEND_ONECCL);
         CHECK(unicc.get_version != NULL);
@@ -99,7 +99,7 @@ int main(int argc, char **argv) {
      * comm_user_rank NULL (degrade pattern) while core stays populated. */
     if (fake_eccl) {
         unicc_lib_handle_t h = NULL;
-        CHECK(unicc_loader_load(fake_eccl, &h) == UNICC_OK);
+        CHECK(unicc_loader_load(fake_eccl, &h, NULL, 0) == UNICC_OK);
         CHECK(unicc_vtable_init(h) == UNICC_OK);
         CHECK(unicc_get_backend_type() == UNICC_BACKEND_ECCL);
         CHECK(unicc.allreduce != NULL);

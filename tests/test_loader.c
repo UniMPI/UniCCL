@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
 
     /* dlopen failure on a bogus path (also exercises the soname fallback). */
     unicc_lib_handle_t handle = NULL;
-    CHECK(unicc_loader_load("/no/such/libnccl.so.99", &handle) == UNICC_ERR_BACKEND_LOAD);
+    CHECK(unicc_loader_load("/no/such/libnccl.so.99", &handle, NULL, 0) == UNICC_ERR_BACKEND_LOAD);
     CHECK(handle == NULL);
 
     /* Identify (null handle) -> UNKNOWN. */
@@ -70,7 +70,7 @@ int main(int argc, char **argv) {
 
     /* Identify a pure NCCL-shaped fake -> NCCL. */
     if (fake_nccl) {
-        CHECK(unicc_loader_load(fake_nccl, &handle) == UNICC_OK);
+        CHECK(unicc_loader_load(fake_nccl, &handle, NULL, 0) == UNICC_OK);
         CHECK(unicc_loader_identify_backend(handle) == UNICC_BACKEND_NCCL);
         unicc_loader_unload(handle);
     }
@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
     /* Identify the RCCL fake, which exports nccl* compat symbols as well ->
      * MUST be RCCL (rccl* exclusives win). This is the discrimination test. */
     if (fake_rccl) {
-        CHECK(unicc_loader_load(fake_rccl, &handle) == UNICC_OK);
+        CHECK(unicc_loader_load(fake_rccl, &handle, NULL, 0) == UNICC_OK);
         CHECK(unicc_platform_dlsym(handle, "ncclGetVersion") != NULL); /* compat present */
         CHECK(unicc_platform_dlsym(handle, "rcclGetVersion") != NULL); /* native present */
         CHECK(unicc_loader_identify_backend(handle) == UNICC_BACKEND_RCCL);
@@ -87,7 +87,7 @@ int main(int argc, char **argv) {
 
     /* Missing-symbol variant is still an NCCL identity. */
     if (fake_nccl_missing) {
-        CHECK(unicc_loader_load(fake_nccl_missing, &handle) == UNICC_OK);
+        CHECK(unicc_loader_load(fake_nccl_missing, &handle, NULL, 0) == UNICC_OK);
         CHECK(unicc_loader_identify_backend(handle) == UNICC_BACKEND_NCCL);
         unicc_loader_unload(handle);
     }
@@ -95,7 +95,7 @@ int main(int argc, char **argv) {
     /* oneCCL v2-shaped fake -> ONECCL (its oneccl* prefixes are specific enough
      * that the generic nccl* probe must NOT claim it). */
     if (fake_oneccl) {
-        CHECK(unicc_loader_load(fake_oneccl, &handle) == UNICC_OK);
+        CHECK(unicc_loader_load(fake_oneccl, &handle, NULL, 0) == UNICC_OK);
         CHECK(unicc_platform_dlsym(handle, "onecclGetVersion") != NULL);
         CHECK(unicc_platform_dlsym(handle, "ncclGetVersion") == NULL); /* no nccl* family */
         CHECK(unicc_loader_identify_backend(handle) == UNICC_BACKEND_ONECCL);
@@ -104,7 +104,7 @@ int main(int argc, char **argv) {
 
     /* ECCL-shaped fake -> ECCL. */
     if (fake_eccl) {
-        CHECK(unicc_loader_load(fake_eccl, &handle) == UNICC_OK);
+        CHECK(unicc_loader_load(fake_eccl, &handle, NULL, 0) == UNICC_OK);
         CHECK(unicc_platform_dlsym(handle, "ecclGetVersion") != NULL);
         CHECK(unicc_loader_identify_backend(handle) == UNICC_BACKEND_ECCL);
         unicc_loader_unload(handle);

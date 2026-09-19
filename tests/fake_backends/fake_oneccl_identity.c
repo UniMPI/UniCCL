@@ -21,13 +21,19 @@
 typedef void* onecclComm_t;
 
 static size_t fake_dt_size(int dt) {
+    /* Modern NCCL numbering (ncclInt8=0 .. ncclBfloat16=9), matching
+     * docs/BACKENDS.md "Enum mapping". */
     switch (dt) {
-        case 0: case 1: case 2:  return 1;
-        case 3: case 4:          return 4;
-        case 5: case 6:          return 8;
-        case 7:                  return 4;
-        case 8:                  return 8;
-        case 9:                  return 2;
+        case 0: return 1;  /* I8  */
+        case 1: return 1;  /* U8  */
+        case 2: return 4;  /* I32 */
+        case 3: return 4;  /* U32 */
+        case 4: return 8;  /* I64 */
+        case 5: return 8;  /* U64 */
+        case 6: return 2;  /* F16 */
+        case 7: return 4;  /* F32 */
+        case 8: return 8;  /* F64 */
+        case 9: return 2;  /* BF16*/
     }
     return 0;
 }
@@ -41,7 +47,7 @@ static void oneccl_allreduce_impl(const void *send, void *recv, size_t count,
             for (size_t i = 0; i < count; i++) r[i] += s[i] + 2000.0f;
             return;
         }
-        if (datatype == 3 /* int32 */) {
+        if (datatype == 2 /* int32 (ncclInt32) */) {
             const int *s = (const int*)send;
             int *r = (int*)recv;
             for (size_t i = 0; i < count; i++) r[i] += s[i];

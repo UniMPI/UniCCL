@@ -12,37 +12,38 @@ typedef int (*device_count_fn)(int *);
 
 static int load_runtime(const char *const *libs, const char *prefix,
                         unicc_devmem_t *api) {
-    void *h = NULL;
-    for (int i = 0; libs[i] && !h; i++) {
-        h = dlopen(libs[i], RTLD_NOW | RTLD_GLOBAL);
+    const char *last_err = NULL;
+    for (int i = 0; libs[i]; i++) {
+        void *h = dlopen(libs[i], RTLD_NOW | RTLD_GLOBAL);
+        if (!h) {
+            last_err = dlerror();
+            continue;
+        }
+        char sym[64];
+        snprintf(sym, sizeof(sym), "%sMalloc", prefix);
+        api->dev_malloc  = (malloc_fn)dlsym(h, sym);
+        snprintf(sym, sizeof(sym), "%sMemcpy", prefix);
+        api->dev_memcpy  = (memcpy_fn)dlsym(h, sym);
+        snprintf(sym, sizeof(sym), "%sMemset", prefix);
+        api->dev_memset  = (memset_fn)dlsym(h, sym);
+        snprintf(sym, sizeof(sym), "%sFree", prefix);
+        api->dev_free    = (free_fn)dlsym(h, sym);
+        snprintf(sym, sizeof(sym), "%sSetDevice", prefix);
+        api->dev_set_device = (set_device_fn)dlsym(h, sym);
+        snprintf(sym, sizeof(sym), "%sGetDeviceCount", prefix);
+        api->dev_get_device_count = (device_count_fn)dlsym(h, sym);
+        if (api->dev_malloc && api->dev_memcpy && api->dev_memset && api->dev_free &&
+            api->dev_set_device && api->dev_get_device_count) {
+            api->runtime = prefix;
+            return 0;
+        }
+        /* The candidate loads but lacks the required symbols: dlclose and try
+         * the next candidate name rather than giving up (c). */
+        dlclose(h);
     }
-    if (!h) {
-        fprintf(stderr, "[devmem] no device runtime found (%s): %s\n",
-                prefix, dlerror());
-        return -1;
-    }
-
-    char sym[64];
-    snprintf(sym, sizeof(sym), "%sMalloc", prefix);
-    api->dev_malloc  = (malloc_fn)dlsym(h, sym);
-    snprintf(sym, sizeof(sym), "%sMemcpy", prefix);
-    api->dev_memcpy  = (memcpy_fn)dlsym(h, sym);
-    snprintf(sym, sizeof(sym), "%sMemset", prefix);
-    api->dev_memset  = (memset_fn)dlsym(h, sym);
-    snprintf(sym, sizeof(sym), "%sFree", prefix);
-    api->dev_free    = (free_fn)dlsym(h, sym);
-    snprintf(sym, sizeof(sym), "%sSetDevice", prefix);
-    api->dev_set_device = (set_device_fn)dlsym(h, sym);
-    snprintf(sym, sizeof(sym), "%sGetDeviceCount", prefix);
-    api->dev_get_device_count = (device_count_fn)dlsym(h, sym);
-    api->runtime = prefix;
-
-    if (!api->dev_malloc || !api->dev_memcpy || !api->dev_memset || !api->dev_free ||
-        !api->dev_set_device || !api->dev_get_device_count) {
-        fprintf(stderr, "[devmem] %s runtime missing required symbols\n", prefix);
-        return -1;
-    }
-    return 0;
+    fprintf(stderr, "[devmem] no device runtime found (%s): %s\n",
+            prefix, last_err ? last_err : "(no error)");
+    return -1;
 }
 
 int unicc_devmem_load(unicc_devmem_t *api) {
