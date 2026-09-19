@@ -18,7 +18,7 @@ it is making.
 the operations below; everything else is future work (allgather,
 reduce-scatter, send/recv, alltoall, …).
 
-Core (required; `unicc_vtable_validate_core` refuses a backend without them):
+Core (required; the binder refuses an identified backend without them):
 
 | Operation | vtable slot | Optional? |
 |---|---|---|

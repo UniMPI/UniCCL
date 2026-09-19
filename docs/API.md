@@ -19,8 +19,9 @@ typedef enum { UNICC_SUM, UNICC_PROD, UNICC_MAX, UNICC_MIN } unicc_reduce_op_t;
 ```
 
 These are UniCCL's own enums; the mapping onto the active backend's numeric
-values lives in `src/unicc_dtmap.c` (per-backend, fixed at init; see
-`BACKENDS.md` "Enum mapping").
+values is the identity — every current backend (NCCL, RCCL, oneCCL v2, ECCL)
+shares the NCCL-family numbering — and lives under `include/unicc_dtmap.h` as
+header-inlined accessors (see `BACKENDS.md` "Enum mapping").
 
 ## Lifecycle
 
@@ -56,7 +57,8 @@ prints which symbols are missing so the failure is obvious.
 | `unicc_comm_destroy(unicc_comm_t comm)` | Destroy a communicator. |
 | `unicc_comm_count(unicc_comm_t comm, int* count)` | Number of ranks in the communicator. |
 | `unicc_comm_user_rank(unicc_comm_t comm, int* rank)` | This rank's id in the communicator (ECCL has no such symbol; returns `UNICC_ERR_NOT_SUPPORTED`). |
-| `unicc_comm_available()` | 1 if communicator bootstrap is usable with this backend. |
+| `unicc_comm_available()` | 1 if communicator bootstrap is fully usable: `get_unique_id` **and** `comm_init_rank` both export their backing symbols. |
+| `unicc_get_unique_id_available()` | 1 if the backend can fabricate a unique id (`get_unique_id` symbol present). |
 
 Note: UniCCL does not create a "world"-style communicator for you — like NCCL,
 you call `unicc_get_unique_id` (once, e.g. on rank 0), transfer `id->data` +
@@ -81,11 +83,22 @@ not interpret it.
 - `int unicc_get_last_error(int* raw_backend_result)` — value returned by the last
   failed backend call (`0` if none yet).
 
-Common codes: `UNICC_ERR_NOT_INITIALIZED` (use before init), `UNICC_ERR_FINALIZED`
-(after finalize), `UNICC_ERR_ALREADY_INITIALIZED` (double init),
+Common codes: `UNICC_ERR_NOT_INITIALIZED` (use before init — also reported
+after `unicc_finalize`, which returns to the uninitialized state so a re-init is
+possible; the reserved `UNICC_ERR_FINALIZED` is kept for API stability and is
+never produced), `UNICC_ERR_ALREADY_INITIALIZED` (double init),
 `UNICC_ERR_NOT_SUPPORTED` (backend lacks the operation — slot NULL),
 `UNICC_ERR_UNHANDLED_BACKEND` (backend returned nonzero; check
 `unicc_get_last_error`).
+
+## Thread safety
+
+UniCCL's process-wide state is **not** thread-safe for concurrent lifecycle
+calls: `unicc_init` must not race a second `unicc_init` or `unicc_finalize`, and
+collective calls must not race `unicc_finalize` — serialize the lifecycle with a
+mutex of your own. After a successful `unicc_init`, concurrent collective calls
+are as safe as the underlying backend is (e.g. NCCL allows concurrent calls on
+distinct communicators).
 
 ## Minimal example
 
@@ -96,8 +109,10 @@ int main(void) {
     if (unicc_init() != UNICC_OK) { unicc_diagnose(); return 1; }
     printf("backend=%s\n", unicc_backend_name());
 
-    unicc_comm_id_t id;     unicc_get_unique_id(&id);
-    unicc_comm_t comm;      unicc_comm_init_rank(&comm, 1, &id, 0);
+    unicc_comm_id_t id;
+    if (unicc_get_unique_id(&id) != UNICC_OK) return 1;
+    unicc_comm_t comm = NULL;
+    if (unicc_comm_init_rank(&comm, 1, &id, 0) != UNICC_OK) return 1;
 
     float in[4] = {1,2,3,4}, out[4];
     if (unicc_allreduce_available())

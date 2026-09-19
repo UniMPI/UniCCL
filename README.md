@@ -30,7 +30,7 @@ later milestone (docs/BACKENDS.md "Identification order").
 └────────────┬────────────┘
              │  unicc_* API (unicc_api.c)
 ┌────────────▼────────────┐
-│ UniCCL wrapper            │   loader + vtable + dtmap + availability gates
+│ UniCCL wrapper            │   loader + vtable + binder + availability gates
 └──────┬─────────────────┘
        │
   backends/{nccl,rccl,oneccl,eccl}.c
@@ -46,10 +46,10 @@ later milestone (docs/BACKENDS.md "Identification order").
 | 2 | backend table (nccl, rccl, oneccl, eccl) + soname fallback | `src/unicc_loader.c` |
 | 3 | selection priority `UNICC_LIBRARY` → `UNICC_BACKEND` → default | `src/unicc_loader.c` |
 | 4 | identify-by-probe-symbol (vendor prefix first, then `nccl*`; see BACKENDS.md) | `src/unicc_loader.c` |
-| 5 | zero-initialized vtable + core check + per-backend dispatch | `src/unicc_vtable.c` |
-| 6 | dlsym bindings, missing symbol → NULL; cold-path id adapters | `src/backends/{nccl,rccl,oneccl,eccl}.c` |
+| 5 | zero-initialized vtable; identify-then-bind per family | `src/unicc_vtable.c` |
+| 6 | generic binder (table-driven), missing symbol → NULL; cold-path id adapters | `src/backends/unicc_bind.c`, `src/backends/{nccl,rccl,oneccl,eccl}.c` |
 | 7 | length-carrying bootstrap id (`unicc_comm_id_t`) | `include/unicc_vtable.h`, `src/unicc_api.c` |
-| 8 | per-backend datatype/op tables, init-time fixed (UniMPI-style) | `src/unicc_dtmap.c`, `include/unicc_dtmap.h` |
+| 8 | datatype/op mapping: identity, header-inlined (UniMPI steady-state) | `include/unicc_dtmap.h` |
 | 9 | unified `unicc_*` semantic API + `*_available()` gates | `src/unicc_api.c`, `include/unicc.h` |
 | 10 | fake-backend unit tests (host, no GPU) | `tests/` |
 | 11 | real-backend integration test (opt-in) | `tests/integration/` |
@@ -96,15 +96,15 @@ UNICC_BACKEND=eccl ./build/minimal          # Enflame TopsRider host
 
 See `docs/BACKENDS.md` for the full rules, including the RCCL
 dual-symbol (`rccl*` + `nccl*` compat) identification subtlety and the
-per-backend datatype/op tables.
+header-inlined datatype/op mapping.
 
 ## Repo layout
 
 ```
 include/     public contract: unicc.h, unicc_vtable.h, unicc_backends.h,
              unicc_dtmap.h, unicc_platform.h, unicc_errors.h, unicc_version.h
-src/         loader, vtable, api, dtmap, platform,
-             backends/{nccl,rccl,oneccl,eccl}.c
+src/         loader, vtable, api, platform,
+             backends/{nccl,rccl,oneccl,eccl,unicc_bind}.c
 tests/       fake fixtures + unit tests + integration test + runner
 examples/    minimal.c
 docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
@@ -134,7 +134,7 @@ docs/        API.md, BACKENDS.md, SUPPORT_MATRIX.md, official/ (vendor
 - **M2.3** real-backend integration + SUPPORT_MATRIX (runner + harness in place;
   execution on GPU images pending)
 - **M2.4** UniMemCom pilot integration (next)
-- **P1 (backend matrix)** id-type upgrade, per-backend datatype/op tables,
+- **P1 (backend matrix)** id-type upgrade, identity datatype/op mapping,
   multi-backend identify, `oneccl` + `eccl` bindings + fixtures ✅ (v0.2.0)
 - **P2 (backend matrix)** CNCL / HCCL / dual MCCL adapters + real-host
   verification list (pending)

@@ -2,6 +2,9 @@
 /build*/
 /cmake-build-*/
 
+# Build logs
+/*.log
+
 # Editor / OS noise
 *.swp
 *.swo

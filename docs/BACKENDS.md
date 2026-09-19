@@ -104,13 +104,20 @@ P2 adds the domestic-card probes (Cambricon `cnclGetLibVersion`, Ascend
 `Hccl*`, dual MCCL `mccl*` — note the two MCCL libraries share the `mccl*`
 prefix and are told apart by a secondary probe / exact `UNICC_LIBRARY` path).
 
-## Binding: dlsym per symbol, NULL on missing
+## Binding: one generic binder, dlsym per symbol, NULL on missing
 
-Each backend binding (`src/backends/nccl.c`, `rccl.c`) resolves its family's
-symbols into the process-wide vtable (`unicc`, declared in `unicc_vtable.h`). A
-symbol the loaded library does not export leaves the slot `NULL` — there is no
-stub and no abort. Callers gate with `unicc_*_available()`; the wrapper returns
-`UNICC_ERR_NOT_SUPPORTED` for a `NULL` slot.
+A single generic binder (`src/backends/unicc_bind.c`) serves every family;
+each family (`nccl.c`, `rccl.c`, …) is a one-line init that points at its row
+in the `unicc_backends[]` descriptor (the single source of symbol names, id
+size, and signature quirks). Core validation runs **at bind time and only
+against the IDENTIFIED family's symbols** — never a mixed-family OR-set, so an
+incomplete or hybrid library cannot ride one family's validation into another
+family's binding and crash. A symbol the loaded library does not export leaves
+the slot `NULL` — there is no stub and no abort. Callers gate with
+`unicc_*_available()`; the wrapper returns `UNICC_ERR_NOT_SUPPORTED` for a
+`NULL` slot. Optional wrappers are installed only over a resolved symbol —
+never a wrapper whose inner call is NULL (a library without `GetUniqueId`
+keeps `unicc_get_unique_id()` degrading to `NOT_SUPPORTED` instead of crashing).
 
 The following are **core** (validated, missing ⇒ `unicc_init` fails):
 
@@ -159,18 +166,17 @@ Notes on the table:
   oneccl/eccl rows are fake-fixture-backed today, real-host verification is
   pending (`nm -D libccl.so.2`, `nm -D libeccl.so`).
 
-## Enum mapping (per-backend, init-time)
+## Enum mapping (identity for all current backends)
 
-Vendor CCLs disagree on the numeric values of the datatype enum, so UniCCL does
-**not** hard-code one table. The mapping lives in `src/unicc_dtmap.c`
-(`include/unicc_dtmap.h`): two small arrays, indexed by `unicc_datatype_t` /
-`unicc_reduce_op_t`, filled once at `unicc_vtable_init` with the active
-backend's numbering. The collective hot path then does a plain array index —
-no switch, no per-call backend branch. This mirrors UniMPI's per-backend
-predefined-constant initialization (`init_mpich_error_codes`).
+Every backend bound today (NCCL, RCCL, Hygon DCU, oneCCL v2, ECCL) uses the
+NCCL-family numbering, so the mapping is the **identity** and lives as
+header-inlined accessors in `include/unicc_dtmap.h` — the collective hot path
+is a single bounds-checked load: no table cell to fill, no init-time work, no
+per-call backend branch. This mirrors UniMPI's steady-state philosophy: the
+mapping costs a load, not a function call.
 
-The default (reset, NCCL-family) table — also used by RCCL, Hygon DCU and P1's
-oneCCL v2 / ECCL (numerically identical per vendor source):
+The identity (NCCL-family) mapping — also used by RCCL, Hygon DCU and oneCCL v2
+/ ECCL (numerically identical per vendor source):
 
 | UniCCL | value | meaning |
 |---|---|---|
@@ -190,11 +196,13 @@ oneCCL v2 / ECCL (numerically identical per vendor source):
 document carried the older NCCL numbering F16=9/BF16=10, which does not match
 modern NCCL — corrected here.)
 
-Diverging backends overwrite their rows in the P2 milestone: Moore/MetaX MCCL
-use the RCCL-style numbering with `Uint32` inserted (Int8=0, Uint8=1, Int32=2,
-Uint32=3, Int64=4, Uint64=5, Float16=6, Float32=7, Float64=8, Bfloat16=9),
-Cambricon CNCL uses a hex coding (Int8=0x20, Float32=0x12, …), Ascend HCCL its
-own layout — all recorded from vendor source in `docs/official/`.
+Diverging backends grow a real table behind the same accessors in the P2
+milestone: Moore/MetaX MCCL use the RCCL-style numbering with `Uint32` inserted
+(Int8=0, Uint8=1, Int32=2, Uint32=3, Int64=4, Uint64=5, Float16=6, Float32=7,
+Float64=8, Bfloat16=9), Cambricon CNCL uses a hex coding (Int8=0x20, Float32=0x12,
+…), Ascend HCCL its own layout — all recorded from vendor source in
+`docs/official/`. The hot path accessors stay put; only a divergent table is
+added.
 
 ## Bootstrap id: length-carrying (`unicc_comm_id_t`)
 
@@ -219,7 +227,7 @@ non-zero → `UNICC_ERR_UNHANDLED_BACKEND`, keeping the raw value for
 | Platform | nccl | rccl | oneccl | eccl |
 |---|:---:|:---:|:---:|:---:|
 | Linux | yes | yes | yes | yes |
-| macOS | yes | no (ROCm) | unverified | no |
+| macOS | no (NCCL ships Linux-only; the loader tries the `.dylib` spelling for locally-built libs) | no (ROCm) | unverified | no |
 | Windows | not yet (planned) | no | no | no |
 
 ## Deliberate simplifications
