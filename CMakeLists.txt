@@ -15,11 +15,11 @@ set(UNICC_SOURCES
     src/unicc_loader.c
     src/unicc_vtable.c
     src/unicc_api.c
-    src/unicc_dtmap.c
     src/backends/nccl.c
     src/backends/rccl.c
     src/backends/oneccl.c
-    src/backends/eccl.c)
+    src/backends/eccl.c
+    src/backends/unicc_bind.c)
 
 if(WIN32)
     list(APPEND UNICC_SOURCES src/unicc_platform_windows.c)

@@ -5,6 +5,7 @@
  * soname fallback, identify-by-feature-symbol, and a per-symbol diagnose that
  * is invaluable on hosts with no NCCL/RCCL installed. */
 #include "unicc_backends.h"
+#include "unicc_native_id.h"   /* UNICC_ONECCL_UNIQUE_ID_BYTES (table row below) */
 #include "unicc_version.h"
 #include <stdlib.h>
 #include <string.h>
@@ -20,17 +21,22 @@
  * the rccl entry stays as the defensive rccl*-family path.
  * Intel oneCCL v2 (the NCCL-aligned C API, default branch since 2022.1) ships
  * libccl.so.2; the classic C++-API line used libccl.so.1. Symbol prefix
- * oneccl*. (Evidence: docs/official/ccL-ecosystem-survey-2026-09-17.md)
+ * oneccl*.
  * Enflame ECCL ships libeccl.so (TopsRider suite); soname inferred from
  * torch-gcu usage, not yet confirmed by nm -D on a real host.
- * Each entry's probe_symbol is how unicc_loader_identify_backend recognizes a
- * loaded library; keep the identifying probes vendor-specific (vendor docs say
- * the libs export their own prefixes - see the survey record). */
+ * Each row is the single source of every per-family fact (prefix, id size,
+ * signature quirks). Identification probes rows in DESCENDING priority (see
+ * identify_backend), so keep the table ordered by ascending priority and put
+ * the specific-prefix families ahead of the generic nccl fallback. */
 const unicc_backend_info_t unicc_backends[UNICC_MAX_BACKENDS] = {
-    {UNICC_BACKEND_NCCL,   "nccl",   "libnccl.so", "libnccl.so.2", "ncclGetVersion",    2},
-    {UNICC_BACKEND_RCCL,   "rccl",   "librccl.so", "librccl.so.1", "rcclGetVersion",    3},
-    {UNICC_BACKEND_ONECCL, "oneccl", "libccl.so.2", "libccl.so",   "onecclGetVersion",  4},
-    {UNICC_BACKEND_ECCL,   "eccl",   "libeccl.so", NULL,           "ecclGetVersion",    5}
+    {UNICC_BACKEND_NCCL,   "nccl",   "libnccl.so",  "libnccl.so.2", "ncclGetVersion",   2,
+     128, UNICC_UID_NCCL,   0, 0, 1},
+    {UNICC_BACKEND_RCCL,   "rccl",   "librccl.so",  "librccl.so.1", "rcclGetVersion",   3,
+     128, UNICC_UID_NCCL,   0, 0, 1},
+    {UNICC_BACKEND_ONECCL, "oneccl", "libccl.so.2", "libccl.so",    "onecclGetVersion", 4,
+     UNICC_ONECCL_UNIQUE_ID_BYTES, UNICC_UID_ONECCL, 1, 1, 1},
+    {UNICC_BACKEND_ECCL,   "eccl",   "libeccl.so",  NULL,           "ecclGetVersion",   5,
+     128, UNICC_UID_NCCL,   1, 1, 0}
 };
 
 /* Check whether a backend type is sensible on this platform. */
@@ -84,7 +90,9 @@ int unicc_loader_detect_backend(const char **out_lib_path) {
         return UNICC_OK;
     }
 
-    /* Priority 2: backend name. An unrecognized name is treated as a path. */
+    /* Priority 2: backend name. An unrecognized name is treated as a library
+     * path (a power-user escape hatch), but warn first so a typo like
+     * UNICC_BACKEND=ncccl is not silently swallowed as a path (f). */
     if (env_backend) {
         fprintf(stderr, "[UniCCL] Using backend from UNICC_BACKEND: %s\n", env_backend);
         for (int i = 0; i < UNICC_MAX_BACKENDS; i++) {
@@ -93,6 +101,8 @@ int unicc_loader_detect_backend(const char **out_lib_path) {
                 return UNICC_OK;
             }
         }
+        fprintf(stderr, "[UniCCL] '%s' is not a known backend name; treating it as a library path\n",
+                env_backend);
         *out_lib_path = env_backend;
         return UNICC_OK;
     }
@@ -105,11 +115,15 @@ int unicc_loader_detect_backend(const char **out_lib_path) {
     return UNICC_OK;
 }
 
-int unicc_loader_load(const char *lib_path, unicc_lib_handle_t *out_handle) {
+int unicc_loader_load(const char *lib_path, unicc_lib_handle_t *out_handle,
+                      char *resolved_path, size_t resolved_cap) {
     if (!out_handle) {
         return UNICC_ERR_INVALID_ARGUMENT;
     }
     *out_handle = NULL;
+    if (resolved_path && resolved_cap) {
+        resolved_path[0] = '\0';
+    }
 
     if (!lib_path) {
         fprintf(stderr, "[UniCCL:ERROR] No backend library path provided\n");
@@ -118,8 +132,14 @@ int unicc_loader_load(const char *lib_path, unicc_lib_handle_t *out_handle) {
 
     fprintf(stderr, "[UniCCL] Loading backend library: %s\n", lib_path);
 
+    const char *loaded = lib_path;
     unicc_lib_handle_t handle = unicc_platform_dlopen(lib_path);
     if (!handle) {
+        /* dlerror() is single-buffered; capture the PRIMARY failure now, before
+         * any fallback dlopen overwrites it, so a corrupt primary is not
+         * misreported as an absent fallback (F15). */
+        const char *primary_err = unicc_platform_dlerror();
+
         /* A backend may prefer a specific name (libnccl.so) but fall back to
          * its soname (libnccl.so.2) when the dev name is absent. */
         const char *alt = NULL;
@@ -133,15 +153,44 @@ int unicc_loader_load(const char *lib_path, unicc_lib_handle_t *out_handle) {
         if (alt) {
             fprintf(stderr, "[UniCCL] %s not found, trying fallback %s\n", lib_path, alt);
             handle = unicc_platform_dlopen(alt);
+            if (handle) {
+                loaded = alt;
+            }
         }
-    }
-    if (!handle) {
-        fprintf(stderr, "[UniCCL:ERROR] Failed to load backend library: %s\n", lib_path);
-        fprintf(stderr, "[UniCCL:ERROR] %s\n", unicc_platform_dlerror());
-        return UNICC_ERR_BACKEND_LOAD;
+
+#if defined(__APPLE__)
+        /* macOS names shared libraries *.dylib, but every table lib_name is a
+         * .so. Retry the .dylib spelling of the requested name before giving
+         * up; this covers locally-built dylibs (NCCL ships no macOS binary -
+         * see docs/BACKENDS.md "Platform support"). */
+        if (!handle) {
+            size_t n = strlen(lib_path);
+            if (n > 3 && strcmp(lib_path + n - 3, ".so") == 0) {
+                char dylib[160];
+                snprintf(dylib, sizeof dylib, "%.*s.dylib", (int)(n - 3), lib_path);
+                fprintf(stderr, "[UniCCL] %s not found, trying macOS spelling %s\n",
+                        lib_path, dylib);
+                handle = unicc_platform_dlopen(dylib);
+                if (handle) {
+                    loaded = dylib;
+                }
+            }
+        }
+#endif /* __APPLE__ */
+
+        if (!handle) {
+            fprintf(stderr, "[UniCCL:ERROR] Failed to load backend library: %s\n", lib_path);
+            fprintf(stderr, "[UniCCL:ERROR] %s\n", primary_err ? primary_err : "(no error)");
+            return UNICC_ERR_BACKEND_LOAD;
+        }
     }
 
     fprintf(stderr, "[UniCCL] Successfully loaded backend library\n");
+    /* Report the name that actually dlopen'd (F6): lib_path, the soname fallback,
+     * or the macOS spelling - never a guess. */
+    if (resolved_path && resolved_cap) {
+        snprintf(resolved_path, resolved_cap, "%s", loaded);
+    }
     *out_handle = handle;
     return UNICC_OK;
 }
@@ -158,27 +207,20 @@ unicc_backend_type_t unicc_loader_identify_backend(unicc_lib_handle_t handle) {
 
     fprintf(stderr, "[UniCCL] Identifying backend type...\n");
 
-    /* Probe order matters: each library exports its own prefix. The specific
-     * families (rccl / oneccl / eccl prefixes) are probed BEFORE the generic
-     * nccl probe so a library that also happens to export ncclGetVersion is
-     * never misidentified as NVIDIA NCCL. Defensive note (docs/official/):
-     * modern AMD RCCL exposes no public rccl symbols, so on real RCCL/DCU the
-     * rccl branch does not fire and the library resolves as NCCL below. */
-    static const struct {
-        unicc_backend_type_t type;
-        const char *sym;
-    } probe_order[] = {
-        {UNICC_BACKEND_RCCL,   "rcclGetVersion"},
-        {UNICC_BACKEND_ONECCL, "onecclGetVersion"},
-        {UNICC_BACKEND_ECCL,   "ecclGetVersion"},
-        {UNICC_BACKEND_NCCL,   "ncclGetVersion"}
-    };
-
-    for (size_t i = 0; i < sizeof(probe_order) / sizeof(probe_order[0]); i++) {
-        if (unicc_platform_dlsym(handle, probe_order[i].sym) != NULL) {
-            fprintf(stderr, "[UniCCL] Detected %s backend\n",
-                    backend_name_from_type(probe_order[i].type));
-            return probe_order[i].type;
+    /* Probe order matters: each library exports its own prefix, so the
+     * specific families (eccl / oneccl / rccl) must be probed BEFORE the
+     * generic nccl fallback - a library that also happens to export
+     * ncclGetVersion (real RCCL / Hygon DCU) must never be misidentified as
+     * NVIDIA NCCL. unicc_backends[] is ordered by ASCENDING priority, so this
+     * walks it from the last row downward (descending priority). probe_symbol
+     * is the single source of identifying symbols (F11). Defensive note
+     * (docs/official/): modern AMD RCCL exposes no public rccl symbols, so on
+     * real RCCL/DCU the rccl row does not fire and the library resolves as
+     * NCCL below. */
+    for (int i = UNICC_MAX_BACKENDS - 1; i >= 0; i--) {
+        if (unicc_platform_dlsym(handle, unicc_backends[i].probe_symbol) != NULL) {
+            fprintf(stderr, "[UniCCL] Detected %s backend\n", unicc_backends[i].name);
+            return unicc_backends[i].type;
         }
     }
 
@@ -206,7 +248,7 @@ void unicc_diagnose_backend(const char *lib_path) {
     fprintf(stderr, "UNICC_LIBRARY: %s\n", env_libpath ? env_libpath : "(not set)");
 
     unicc_lib_handle_t handle;
-    int ret = unicc_loader_load(lib_path, &handle);
+    int ret = unicc_loader_load(lib_path, &handle, NULL, 0);
     if (ret != UNICC_OK) {
         fprintf(stderr, "Failed to load backend: %s\n", unicc_error_string(ret));
         if (ret == UNICC_ERR_BACKEND_LOAD) {
@@ -220,19 +262,20 @@ void unicc_diagnose_backend(const char *lib_path) {
 
     fprintf(stderr, "\nChecking symbols:\n");
     /* Every registered family is listed so the report is useful regardless of
-     * which backend's library is being diagnosed. */
-    const char *required_symbols[] = {
-        "ncclGetVersion", "rcclGetVersion", "onecclGetVersion", "ecclGetVersion",
-        "ncclCommInitRank", "rcclCommInitRank", "onecclCommInitRank", "ecclCommInitRank",
-        "ncclAllReduce", "rcclAllReduce", "onecclAllReduce", "ecclAllReduce",
-        "ncclBroadcast", "rcclBroadcast", "onecclBroadcast", "ecclBroadcast",
-        "ncclGroupStart", "rcclGroupStart", "onecclGroupStart", "ecclGroupStart",
-        "ncclGroupEnd", "rcclGroupEnd", "onecclGroupEnd", "ecclGroupEnd",
-        NULL
+     * which backend's library is being diagnosed. Built from unicc_backends[]
+     * (the single source of per-family names, F11) - no hand-maintained list
+     * to drift. */
+    static const char *suffixes[] = {
+        "GetVersion", "CommInitRank", "AllReduce", "Broadcast",
+        "GroupStart", "GroupEnd", NULL
     };
-    for (int i = 0; required_symbols[i] != NULL; i++) {
-        void *sym = unicc_platform_dlsym(handle, required_symbols[i]);
-        fprintf(stderr, "  %-18s %s\n", required_symbols[i], sym ? "OK" : "NOT FOUND");
+    char sym[96];
+    for (int b = 0; b < UNICC_MAX_BACKENDS; b++) {
+        for (int s = 0; suffixes[s]; s++) {
+            snprintf(sym, sizeof sym, "%s%s", unicc_backends[b].name, suffixes[s]);
+            void *found = unicc_platform_dlsym(handle, sym);
+            fprintf(stderr, "  %-22s %s\n", sym, found ? "OK" : "NOT FOUND");
+        }
     }
 
     unicc_loader_unload(handle);

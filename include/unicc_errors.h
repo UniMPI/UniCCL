@@ -14,7 +14,9 @@ typedef enum {
     UNICC_ERR_SYMBOL_NOT_FOUND = -4,      /* a required core symbol is missing */
     UNICC_ERR_NOT_INITIALIZED = -5,       /* unicc_* called before unicc_init */
     UNICC_ERR_ALREADY_INITIALIZED = -6,   /* unicc_init called twice */
-    UNICC_ERR_FINALIZED = -7,             /* unicc_* called after unicc_finalize */
+    /* Reserved: finalize returns to the uninitialized state, so any call after
+     * unicc_finalize reports NOT_INITIALIZED; -7 is kept for API stability. */
+    UNICC_ERR_FINALIZED = -7,
     UNICC_ERR_INVALID_ARGUMENT = -8,
     UNICC_ERR_NOT_SUPPORTED = -9,         /* backend does not export the symbol (slot NULL) */
     UNICC_ERR_UNHANDLED_BACKEND = -10,    /* backend returned a non-zero native result */

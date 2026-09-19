@@ -1,13 +1,15 @@
-/* unicc_vtable.c - zero-initialized dispatch table, core validation, per-backend
- * init dispatch and cleanup.
+/* unicc_vtable.c - zero-initialized dispatch table, per-backend init dispatch
+ * and cleanup.
  *
  * Mechanism modeled on UniMPI's vtable (src/vtable.c): a global
- * zero-initialized table, a small core-symbol validation, identification of
- * the loaded library, and a switch that fills the table from the matching
- * backend binding. */
+ * zero-initialized table, identification of the loaded library, and a switch
+ * that fills the table from the matching backend binding. Core-symbol
+ * validation happens inside the binding, and only against the IDENTIFIED
+ * family (unicc_bind.c) - never a mixed-family OR-set, so a hybrid or
+ * incomplete library cannot ride one family's validation into another
+ * family's binding (review F3). */
 #include "unicc_vtable.h"
 #include "unicc_backends.h"
-#include "unicc_dtmap.h"
 #include "unicc_platform.h"
 #include "unicc_errors.h"
 #include <stdlib.h>
@@ -30,71 +32,28 @@ unicc_backend_type_t unicc_get_backend_type(void) {
     return g_backend_type;
 }
 
-static void* load_symbol(unicc_lib_handle_t handle, const char *name) {
-    return unicc_platform_dlsym(handle, name);
-}
-
-/* Validate the minimal set a backend must export for the collective face to
- * work. Each core slot accepts any registered vendor's spelling, because
- * validation runs before identification; a pure oneCCL or ECCL library must
- * not fail this check for lacking nccl* symbols. Symbols outside this set
- * degrade to a NULL slot and are gated by *_available()
- * (see docs/SUPPORT_MATRIX.md). P2 extends each OR-set with the CNCL/HCCL/MCCL
- * spellings when those backends land. */
-static int core_symbol_ok(unicc_lib_handle_t handle, const char **spellings) {
-    for (int i = 0; spellings[i] != NULL; i++) {
-        if (load_symbol(handle, spellings[i]) != NULL) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-int unicc_vtable_validate_core(unicc_lib_handle_t handle) {
-    const char *get_version[] = {"ncclGetVersion", "rcclGetVersion",
-                                 "onecclGetVersion", "ecclGetVersion", NULL};
-    const char *init_rank[]   = {"ncclCommInitRank", "rcclCommInitRank",
-                                 "onecclCommInitRank", "ecclCommInitRank", NULL};
-    const char *allreduce[]   = {"ncclAllReduce", "rcclAllReduce",
-                                 "onecclAllReduce", "ecclAllReduce", NULL};
-    const char *broadcast[]   = {"ncclBroadcast", "rcclBroadcast",
-                                 "onecclBroadcast", "ecclBroadcast", NULL};
-    if (!core_symbol_ok(handle, get_version) ||
-        !core_symbol_ok(handle, init_rank) ||
-        !core_symbol_ok(handle, allreduce) ||
-        !core_symbol_ok(handle, broadcast)) {
-        fprintf(stderr, "[UniCCL:ERROR] Backend library does not export the required core symbols\n");
+/* Initialize the vtable for the given loaded backend library.
+ *
+ * Flow: identify FIRST - a library is bound by its own family, never by some
+ * other family's spelling of the core symbols. The identified family's core
+ * symbols are then required inside unicc_vtable_bind (missing =>
+ * UNICC_ERR_SYMBOL_NOT_FOUND => unicc_init fails). Optional symbols degrade to
+ * a NULL slot and are gated by *_available(). The global type/handle are
+ * published only after everything succeeded, and a failed init restores the
+ * table to all-zeros - no torn slots, no dangling handle (F7). */
+int unicc_vtable_init(unicc_lib_handle_t handle) {
+    unicc_backend_type_t type = unicc_loader_identify_backend(handle);
+    if (type == UNICC_BACKEND_UNKNOWN) {
+        fprintf(stderr, "[UniCCL:ERROR] Could not identify backend type\n");
         return UNICC_ERR_SYMBOL_NOT_FOUND;
     }
-    return UNICC_OK;
-}
 
-/* Initialize the vtable for the given loaded backend library. */
-int unicc_vtable_init(unicc_lib_handle_t handle) {
-    int ret;
-
-    /* Validate the core surface first. */
-    ret = unicc_vtable_validate_core(handle);
+    int ret = unicc_loader_check_platform_support(type);
     if (ret != UNICC_OK) {
         return ret;
     }
 
-    /* Identify the family, then bind the matching symbols. */
-    g_backend_type = unicc_loader_identify_backend(handle);
-    g_backend_handle = handle;
-
-    ret = unicc_loader_check_platform_support(g_backend_type);
-    if (ret != UNICC_OK) {
-        return ret;
-    }
-
-    /* Datatype/op tables start at the NCCL-family numbering; the binding below
-     * may overwrite entries where a vendor's numbering differs. This reset
-     * keeps every init deterministic even if a previous init left a divergent
-     * backend's table in place. */
-    unicc_dtmap_reset_nccl();
-
-    switch (g_backend_type) {
+    switch (type) {
         case UNICC_BACKEND_NCCL:
             ret = unicc_vtable_init_nccl(handle);
             break;
@@ -113,7 +72,15 @@ int unicc_vtable_init(unicc_lib_handle_t handle) {
             break;
     }
 
-    return ret;
+    if (ret != UNICC_OK) {
+        /* Do not leave a torn table or a stale identified type behind. */
+        memset(&unicc, 0, sizeof(unicc_vtable_t));
+        return ret;
+    }
+
+    g_backend_type = type;
+    g_backend_handle = handle;
+    return UNICC_OK;
 }
 
 /* Reset the dispatch table to zeros. Does not unload the backend handle;

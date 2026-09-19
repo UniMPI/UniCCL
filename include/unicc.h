@@ -79,8 +79,11 @@ int unicc_comm_init_rank(unicc_comm_t *comm, int nranks, const unicc_comm_id_t *
 int unicc_comm_destroy(unicc_comm_t comm);
 int unicc_comm_count(unicc_comm_t comm, int *count);
 int unicc_comm_user_rank(unicc_comm_t comm, int *rank);
-/* 1 if communicator bootstrap is usable with the active backend. */
+/* 1 if communicator bootstrap is fully usable with the active backend:
+ * get_unique_id AND comm_init_rank both export their backing symbols (F4). */
 int unicc_comm_available(void);
+/* 1 if the active backend exports GetUniqueId (an id can be fabricated). */
+int unicc_get_unique_id_available(void);
 
 /* --- Collectives ------------------------------------------------ */
 /* stream may be NULL (default stream) or an opaque stream handle. */

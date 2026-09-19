@@ -23,26 +23,23 @@ static unicc_lib_handle_t g_handle = NULL;
 static int g_last_backend_result = 0;
 static char g_lib_path[256] = "";
 
-/* Translate a backend's native result (0 == success) into a unified code. */
+/* Translate a backend's native result (0 == success) into a unified code.
+ *
+ * Vendor results are ints where 0 == success and errors are POSITIVE
+ * (ncclSystemError=1, ...). A negative code from a binder adapter is a
+ * UniCCL-internal error (e.g. UNICC_ERR_INVALID_ARGUMENT for a wrong-length
+ * bootstrap id): pass it through unchanged - never stash a UniCCL enum in the
+ * raw backend-result channel, so the "raw value of the last failed BACKEND
+ * call" contract (errors.h) stays exact (review F2). */
 static unicc_result_t map_backend_result(int rc) {
     if (rc == 0) {
         return UNICC_OK;
     }
+    if (rc < 0) {
+        return (unicc_result_t)rc;
+    }
     g_last_backend_result = rc;
     return UNICC_ERR_UNHANDLED_BACKEND;
-}
-
-/* Map UniCCL's datatype/op enums onto the active backend's numeric values via
- * the init-time per-backend tables (unicc_dtmap.h). The tables are filled once
- * during unicc_vtable_init to the executing backend's numbering, so the hot
- * path is a plain array index - no switch and no backend branch on every
- * collective call (docs/BACKENDS.md "Enum mapping"). */
-static int map_datatype(unicc_datatype_t dt) {
-    return unicc_dtmap_lookup_dt((int)dt);
-}
-
-static int map_reduce_op(unicc_reduce_op_t op) {
-    return unicc_dtmap_lookup_op((int)op);
 }
 
 static const char* backend_name_from_type(unicc_backend_type_t type) {
@@ -67,15 +64,18 @@ int unicc_init(void) {
     if (!lib_path) {
         return UNICC_ERR_NO_BACKEND;
     }
+    /* The requested path must fit so the resolved path (this or a short
+     * soname fallback) always does too. */
     if (strlen(lib_path) >= sizeof(g_lib_path)) {
         return UNICC_ERR_INVALID_ARGUMENT;
     }
-    strcpy(g_lib_path, lib_path);
 
     unicc_lib_handle_t handle;
-    rc = unicc_loader_load(lib_path, &handle);
+    /* load reports the name it ACTUALLY dlopen'd into g_lib_path (F6): the
+     * requested path, its soname fallback, or the macOS spelling - never the
+     * (possibly unloadable) requested name. */
+    rc = unicc_loader_load(lib_path, &handle, g_lib_path, sizeof(g_lib_path));
     if (rc != UNICC_OK) {
-        g_lib_path[0] = '\0';
         /* Distinguish "no backend configured" from "configured but broken":
          * with neither UNICC_LIBRARY nor UNICC_BACKEND set, detect probes a
          * default library (libnccl.so); a failed probe is NO_BACKEND (absent
@@ -96,6 +96,9 @@ int unicc_init(void) {
         return rc;
     }
 
+    /* A fresh identity: a stale raw backend result from a previous lifecycle
+     * must not survive into this one (F5 - "0 until a backend call fails"). */
+    g_last_backend_result = 0;
     g_handle = handle;
     g_state = UNICC_STATE_INIT;
     return UNICC_OK;
@@ -109,6 +112,7 @@ int unicc_finalize(void) {
     unicc_loader_unload(g_handle);
     g_handle = NULL;
     g_lib_path[0] = '\0';
+    g_last_backend_result = 0;   /* no backend is live to have failed a call (F5) */
     /* Finalize returns to the uninitialized state so the wrapper library can
      * be re-initiated in the same process (e.g. with a different backend). */
     g_state = UNICC_STATE_UNINIT;
@@ -229,7 +233,14 @@ int unicc_comm_user_rank(unicc_comm_t comm, int *rank) {
 }
 
 int unicc_comm_available(void) {
-    return (g_state == UNICC_STATE_INIT && unicc.comm_init_rank != NULL) ? 1 : 0;
+    /* Bootstrap is "usable" only when BOTH halves resolve: getting a fresh id
+     * AND initializing a communicator from one (F4). */
+    return (g_state == UNICC_STATE_INIT &&
+            unicc.comm_init_rank != NULL && unicc.get_unique_id != NULL) ? 1 : 0;
+}
+
+int unicc_get_unique_id_available(void) {
+    return (g_state == UNICC_STATE_INIT && unicc.get_unique_id != NULL) ? 1 : 0;
 }
 
 int unicc_allreduce(const void *sendbuf, void *recvbuf, size_t count,
@@ -244,8 +255,10 @@ int unicc_allreduce(const void *sendbuf, void *recvbuf, size_t count,
     if (!sendbuf || !recvbuf || count == 0) {
         return UNICC_ERR_INVALID_ARGUMENT;
     }
-    int dt = map_datatype(datatype);
-    int rp = map_reduce_op(op);
+    /* Header-inlined identity mapping (unicc_dtmap.h): a bounds check + one
+     * load per collective, no cross-TU call, no backend branch (F8). */
+    int dt = unicc_dtmap_lookup_dt((int)datatype);
+    int rp = unicc_dtmap_lookup_op((int)op);
     if (dt < 0 || rp < 0) {
         return UNICC_ERR_INVALID_ARGUMENT;
     }
@@ -263,7 +276,7 @@ int unicc_broadcast(void *buf, size_t count, unicc_datatype_t datatype,
     if (!buf || count == 0) {
         return UNICC_ERR_INVALID_ARGUMENT;
     }
-    int dt = map_datatype(datatype);
+    int dt = unicc_dtmap_lookup_dt((int)datatype);
     if (dt < 0) {
         return UNICC_ERR_INVALID_ARGUMENT;
     }

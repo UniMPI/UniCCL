@@ -44,11 +44,12 @@ typedef struct {
  *  - ncclBroadcast(..., int root, ncclComm_t, cudaStream_t)
  * cudaStream_t is an opaque host pointer, so the stream parameter is `void*`.
  * Datatype / Op parameters are `int`; the wrapper maps its own enums onto the
- * active backend's numeric values through the init-time per-backend tables in
- * unicc_dtmap.h (backends disagree numerically — see docs/BACKENDS.md).
+ * active backend's numeric values through the identity accessors in
+ * unicc_dtmap.h (all current backends share the NCCL-family numbering — see
+ * docs/BACKENDS.md).
  */
 typedef struct {
-    /* --- core: required; checked by unicc_vtable_validate_core --- */
+    /* --- core: required; checked at bind time (unicc_vtable_bind) --- */
     int (*get_version)(int *version);
     int (*comm_init_rank)(unicc_comm_t *comm, int nranks,
                           const unicc_comm_id_t *id, int rank);
@@ -71,10 +72,9 @@ typedef struct {
 extern unicc_vtable_t unicc;
 
 /* Backend vtable lifecycle (used by unicc_api.c; exposed for tests).
- * - validate_core: refuse a backend that lacks the M2 core symbols.
- * - init: validate, identify, dispatch into the matching binding.
+ * - init: identify the family, then dispatch into its binding - which validates
+ *   and requires that family's own core symbols (unicc_vtable_bind).
  * - cleanup: restore the table to all-zeros (does not unload the handle). */
-int unicc_vtable_validate_core(unicc_lib_handle_t handle);
 int unicc_vtable_init(unicc_lib_handle_t handle);
 void unicc_vtable_cleanup(void);
 
